@@ -1,0 +1,17 @@
+/divoom
+/dist/
+*.test
+*.out
+
+# editor
+.vscode/
+.idea/
+*.swp
+
+# local config / secrets
+.env
+.env.local
+config.local.yaml
+
+# go module cache scratch
+/vendor/

@@ -1,0 +1,15 @@
+services:
+  divoom:
+    build: .
+    image: divoom:dev
+    container_name: divoom
+    restart: unless-stopped
+    # Host networking so cloud-discovery sees the same LAN the frame is on,
+    # and so the daemon can later host widget endpoints the frame polls.
+    network_mode: host
+    environment:
+      # Override the Dockerfile default here if your frame changes.
+      # DIVOOM_FRAME_MAC: "4c37deff59df"
+      # DIVOOM_FRAME_IP:  "10.0.2.108"   # optional, skip cloud discovery
+      TZ: America/Los_Angeles
+    command: ["probe"]
