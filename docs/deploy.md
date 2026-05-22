@@ -36,15 +36,23 @@ compose contents on every deploy.
 
 ## Deploy workflow
 
-Scene backgrounds live on the device flash and are written by `adb push`.
+Scene backgrounds and the three custom TTFs (Iosevka, Roboto Condensed
+Regular & Light) live on the device flash and are written by `adb push`.
 The NAS container has no USB connection to the frame, so the daemon
 running there cannot push them — that step must happen from the
 USB-attached dev box. After any scene change (new scene, new bg art,
-new weather outlook tier), run once from the dev box:
+new weather outlook tier), or after a factory reset that wipes the
+overlay filesystem, run once from the dev box:
 
 ```
-go run ./cmd/divoom push
+scripts/download-fonts.sh     # one-time, populates ./fonts/ from upstream
+go run ./cmd/divoom push      # bgs + fonts; frame restarts at the end
 ```
+
+The download script only fetches what's missing; it is safe to re-run.
+The frame restarts at the end of `push` so divoom_app re-reads
+`/divoom-config/system/font_list.cfg` — see docs/api.md "Custom font
+workflow" for the mechanism.
 
 Then deploy the daemon:
 

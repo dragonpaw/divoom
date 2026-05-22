@@ -33,7 +33,7 @@ func main() {
 	case "serve":
 		err = runServe(ctx)
 	case "push":
-		err = pushSceneBackgrounds(ctx)
+		err = runPush(ctx)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -63,9 +63,13 @@ SUBCOMMANDS
                    Used by CI to publish to the public assets repo.
   serve          Run the dashboard daemon: install layout, poll widgets,
                    rotate scenes.
-  push           Render every scene background and adb-push it to the frame.
-                   Run from a USB-attached host after any scene change;
-                   the daemon container on the NAS can't do this itself.
+  push           Render every scene background and adb-push it to the frame,
+                   then install the three custom TTFs (Iosevka, Roboto
+                   Condensed Regular & Light) into the device's font cache
+                   and reload font_list.cfg. Run from a USB-attached host
+                   after any scene change, or after a factory reset. The
+                   frame restarts at the end to load new fonts.
+                   Prereq: scripts/download-fonts.sh has been run once.
   help           Show this message.
 
 ENVIRONMENT
