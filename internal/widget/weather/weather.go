@@ -1,13 +1,18 @@
 // Package weather fetches current conditions from Open-Meteo and emits a
-// pipe-separated "<temp>°|<outlook>|<hazard>" string for the weather
-// scene. Three sources are merged in parallel:
+// pipe-separated "<temp>°<unit>|<outlook>|<hazard>|<aqi>|<humidity>|<rain>"
+// string for the weather scene. Three sources are merged in parallel:
 //
-//   - Open-Meteo /forecast for temperature + WMO weather code,
+//   - Open-Meteo /forecast for temperature + WMO weather code +
+//     relative humidity + precipitation probability,
 //   - Open-Meteo /air-quality for PM2.5 + US AQI (overrides outlook to
-//     "smoke" when air quality is hazardous),
+//     "smoke" when air quality is hazardous; the AQI integer is also
+//     propagated to the output for display),
 //   - api.weather.gov /alerts/active for active NWS hazards at the
 //     configured point (overrides outlook to "hazard" when present;
 //     non-US locations 4xx silently and are treated as "no alerts").
+//
+// The aqi / humidity / rain segments are blank strings when their source
+// fetch failed or the field was missing from the response.
 package weather
 
 import (
@@ -22,6 +27,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // ipv4Transport is an http.Transport that forces TCP dials over IPv4.
@@ -160,13 +167,26 @@ const (
 const hazardHeadlineMaxLen = 50
 
 // currentWeatherResponse is the slice of the Open-Meteo /forecast JSON we
-// care about — just the current_weather block. Open-Meteo's "weathercode"
-// follows the WMO weather interpretation table.
+// care about. The legacy current_weather block carries the temperature +
+// WMO weather code; the newer `current=` block carries humidity and
+// precipitation probability. The two blocks coexist in one response when
+// both query parameters are supplied. Open-Meteo's "weathercode" follows
+// the WMO weather interpretation table.
+//
+// HumidityPresent / RainPresent track whether each field actually arrived
+// in the response — Open-Meteo omits the key (not zero) when the variable
+// isn't supported for the location, and we want to render the absence as
+// a blank, not as "0%". Using *float64 pointers makes the distinction
+// trivial without an extra raw-JSON pass.
 type currentWeatherResponse struct {
 	CurrentWeather struct {
 		Temperature float64 `json:"temperature"`
 		WeatherCode int     `json:"weathercode"`
 	} `json:"current_weather"`
+	Current struct {
+		RelativeHumidity2m       *float64 `json:"relative_humidity_2m"`
+		PrecipitationProbability *float64 `json:"precipitation_probability"`
+	} `json:"current"`
 }
 
 type airQualityResponse struct {
@@ -185,9 +205,11 @@ type nwsAlertsResponse struct {
 	} `json:"features"`
 }
 
-// Fetch returns a pipe-separated "<temp>°|<outlook>|<hazard>" string.
+// Fetch returns a pipe-separated
+// "<temp>°<unit>|<outlook>|<hazard>|<aqi>|<humidity>|<rain>" string.
 // The hazard segment is empty unless an NWS alert is active for the
-// configured point.
+// configured point; aqi / humidity / rain are blank when the source
+// fetch failed or the field was missing from the response.
 func (c *Client) Fetch(ctx context.Context) (string, error) {
 	var (
 		wg      sync.WaitGroup
@@ -232,14 +254,30 @@ func (c *Client) Fetch(ctx context.Context) (string, error) {
 		outlook = "smoke"
 	}
 
-	return fmt.Sprintf("%d°%s|%s|%s", temp, c.Unit(), outlook, hazardMsg), nil
+	aqi := ""
+	if aqErr == nil {
+		aqi = strconv.Itoa(int(aqResp.Current.USAQI + 0.5))
+	}
+	humidity := ""
+	if fcResp.Current.RelativeHumidity2m != nil {
+		humidity = strconv.Itoa(int(*fcResp.Current.RelativeHumidity2m + 0.5))
+	}
+	rain := ""
+	if fcResp.Current.PrecipitationProbability != nil {
+		rain = strconv.Itoa(int(*fcResp.Current.PrecipitationProbability + 0.5))
+	}
+
+	return fmt.Sprintf("%d°%s|%s|%s|%s|%s|%s",
+		temp, c.Unit(), outlook, hazardMsg, aqi, humidity, rain), nil
 }
 
 func (c *Client) fetchForecast(ctx context.Context, out *currentWeatherResponse) error {
 	url := fmt.Sprintf(
 		"https://api.open-meteo.com/v1/forecast"+
 			"?latitude=%s&longitude=%s"+
-			"&current_weather=true&temperature_unit=%s&timezone=auto",
+			"&current_weather=true"+
+			"&current=relative_humidity_2m,precipitation_probability"+
+			"&temperature_unit=%s&timezone=auto",
 		c.lat, c.lon, c.unit,
 	)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -522,3 +560,5 @@ func (c *Client) fetchThresholds(ctx context.Context) (cold, hot int, err error)
 	}
 	return cold, hot, nil
 }
+
+var _ widget.Widget = (*Client)(nil)

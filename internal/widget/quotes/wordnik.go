@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // Wordnik fetches today's Word of the Day from Wordnik's public API and
@@ -179,3 +181,5 @@ var wordnikFallbackList = []string{
 	"PERSPICACIOUS, adj. Having a ready insight into and understanding of things.",
 	"VICISSITUDE, n. A change of circumstances or fortune, typically one that is unwelcome.",
 }
+
+var _ widget.Widget = (*Wordnik)(nil)

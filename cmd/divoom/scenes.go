@@ -689,6 +689,34 @@ func weatherCondition(raw string) (text, color string) {
 	return outlook, weatherOutlookColor(outlook)
 }
 
+// weatherStats packs the AQI / humidity / rain-probability segments of
+// the widget output into a single " · "-separated stats row. Any blank
+// segment (the widget emits "" when its source field is missing or its
+// fetch errored) is omitted entirely rather than rendered as "0" so a
+// failed AQI lookup doesn't look like clean air. Returns an empty string
+// when all three are missing — the scene mount uses AllowEmpty so the
+// row just stays blank in that case.
+func weatherStats(raw string) (text, color string) {
+	parts := strings.Split(raw, "|")
+	field := func(i int) string {
+		if i < len(parts) {
+			return parts[i]
+		}
+		return ""
+	}
+	var segs []string
+	if v := field(3); v != "" {
+		segs = append(segs, "AQI "+v)
+	}
+	if v := field(4); v != "" {
+		segs = append(segs, v+"% RH")
+	}
+	if v := field(5); v != "" {
+		segs = append(segs, v+"% rain")
+	}
+	return strings.Join(segs, " · "), cFgDark
+}
+
 // --- promoted-quote scene helper ---
 //
 // The six promoted quote/dictionary scenes (babylon5, startrek, discworld,

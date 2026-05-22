@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // Moon is a Widget that computes the current lunar phase from astronomical
@@ -96,3 +98,5 @@ func phase(now time.Time) (float64, string) {
 func illumination(f float64) float64 {
 	return (1 - math.Cos(2*math.Pi*f)) / 2 * 100
 }
+
+var _ widget.Widget = (*Moon)(nil)

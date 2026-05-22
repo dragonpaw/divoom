@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // DayOfYear renders the year-progress as three pipe-separated segments —
@@ -34,3 +36,5 @@ func (d *DayOfYear) Fetch(ctx context.Context) (string, error) {
 func isLeap(y int) bool {
 	return (y%4 == 0 && y%100 != 0) || y%400 == 0
 }
+
+var _ widget.Widget = (*DayOfYear)(nil)

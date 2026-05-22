@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	wpkg "github.com/dragonpaw/divoom/internal/widget"
 )
 
 const (
@@ -279,3 +281,5 @@ func queryEscape(q string) string {
 	}
 	return b.String()
 }
+
+var _ wpkg.Widget = (*Widget)(nil)

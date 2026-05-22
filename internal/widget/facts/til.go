@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // TIL pulls the top posts from r/todayilearned (24h window) and returns
@@ -102,3 +104,5 @@ func (t *TIL) Fetch(ctx context.Context) (string, error) {
 
 	return "TIL|" + picked.Title, nil
 }
+
+var _ widget.Widget = (*TIL)(nil)

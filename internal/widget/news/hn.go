@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 const userAgent = "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)"
@@ -246,3 +248,5 @@ func matches(title string, kws []string) bool {
 	}
 	return false
 }
+
+var _ widget.Widget = (*HN)(nil)

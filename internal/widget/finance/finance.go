@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // Ticker fetches a single symbol's daily closes and renders weekly + monthly
@@ -103,3 +105,5 @@ func (t *Ticker) Fetch(ctx context.Context) (string, error) {
 
 	return fmt.Sprintf("%s  %+.1f%% 1W   %+.1f%% 1M", t.Symbol, weekPct, monthPct), nil
 }
+
+var _ widget.Widget = (*Ticker)(nil)

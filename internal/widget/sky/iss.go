@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // ISS emits the International Space Station's current sub-satellite point
@@ -146,4 +148,6 @@ func formatNextPass(when, now time.Time) string {
 	}
 	return fmt.Sprintf("next pass in %dm", m)
 }
+
+var _ widget.Widget = (*ISS)(nil)
 

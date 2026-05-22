@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 const userAgent = "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)"
@@ -97,3 +99,5 @@ func (o *OnThisDay) Fetch(ctx context.Context) (string, error) {
 	body := fmt.Sprintf("%d: %s", picked.Year, text)
 	return header + "|" + body, nil
 }
+
+var _ widget.Widget = (*OnThisDay)(nil)

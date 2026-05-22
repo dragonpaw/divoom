@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 const userAgent = "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)"
@@ -62,3 +64,5 @@ func (z *ZenQuotes) Fetch(ctx context.Context) (string, error) {
 	q := results[0]
 	return "ZenQuotes|" + q.Quote + "|" + q.Author, nil
 }
+
+var _ widget.Widget = (*ZenQuotes)(nil)

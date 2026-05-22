@@ -7,17 +7,21 @@ import (
 )
 
 // "Weather" — current outdoor conditions consolidated with the
-// hazard feeds. Widget emits "<temp>°|<outlook>|<hazard>"; the
+// hazard feeds. Widget emits
+// "<temp>°<unit>|<outlook>|<hazard>|<aqi>|<humidity>|<rain>"; the
 // outlook bucket carries WMO codes, smoke (PM2.5/AQI override),
 // or hazard (active NWS alert at the configured point). The
 // temperature row is huge proportional digits; the condition row
-// is medium prose; the hazard row sits at the bottom in bright
-// red and is blank when no NWS alert is active. Both temp and
-// outlook colours flip to red when outlook == "hazard". The bg
-// JPG is picked per outlook via BgPathFor so the corner icon
-// matches the current condition. Element count 6 (3 top + 3
-// body) collides with nasa / cocktail / iss; the driver's
-// same-count rule blocks direct transitions, which is fine.
+// is medium prose; the hazard row sits beneath in bright red and
+// is blank when no NWS alert is active; the stats row at the very
+// bottom packs AQI / humidity / rain-chance as " · "-separated
+// fine print (each segment omitted if its source field is blank).
+// Both temp and outlook colours flip to red when outlook ==
+// "hazard". The bg JPG is picked per outlook via BgPathFor so the
+// corner icon matches the current condition. Element count 7 (3
+// top + 4 body) collides with the other 7-element scenes; the
+// driver's same-count rule blocks direct transitions, which is
+// fine.
 func weatherScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "weather",
@@ -55,12 +59,22 @@ func weatherScene(widgets map[string]widget.Widget) *scene.Scene {
 				Align: 2, FontSize: 40, FontID: fontProseLight,
 				FontColor: cRed, BgColor: cBgHard,
 			},
+			// Stats row — fine print, "AQI 45 · 62% RH · 30% rain".
+			// Each segment is dropped when its source field is blank;
+			// the whole row is blank when all three are missing.
+			{
+				ID: idSceneSub3, Type: "Text",
+				StartX: 80, StartY: 1050, Width: 640, Height: 60,
+				Align: 2, FontSize: 32, FontID: fontProseLight,
+				FontColor: cFgDark, BgColor: cBgHard,
+			},
 		},
 		Widget: widgets["weather"],
 		Mounts: []scene.Mount{
 			{ID: idSceneMain, Format: weatherTemp},
 			{ID: idSceneSub1, Format: weatherCondition},
 			{ID: idSceneSub2, Format: pipeAt(2), AllowEmpty: true},
+			{ID: idSceneSub3, Format: weatherStats, AllowEmpty: true},
 		},
 	}
 }

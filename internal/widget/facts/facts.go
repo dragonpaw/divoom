@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 const userAgent = "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)"
@@ -66,3 +68,8 @@ func getJSON(ctx context.Context, h *http.Client, url string, out any) error {
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
+
+var (
+	_ widget.Widget = (*CatFact)(nil)
+	_ widget.Widget = (*UselessFact)(nil)
+)

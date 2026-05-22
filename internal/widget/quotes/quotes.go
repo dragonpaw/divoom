@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // Source returns a random quote from a fixed in-memory pool. One Source
@@ -72,3 +74,5 @@ func splitAuthor(s string) (body, author string) {
 	}
 	return strings.TrimSpace(s), ""
 }
+
+var _ widget.Widget = (*Source)(nil)

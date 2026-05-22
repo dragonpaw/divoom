@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // Sunrise fetches today's sunrise/sunset times for our fixed location from
@@ -85,3 +87,5 @@ func (s *Sunrise) Fetch(ctx context.Context) (string, error) {
 		h, m,
 	), nil
 }
+
+var _ widget.Widget = (*Sunrise)(nil)

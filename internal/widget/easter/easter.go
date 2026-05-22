@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dragonpaw/divoom/internal/widget"
 )
 
 // Easter returns a random curated phrase. Lowest-weight source in the
@@ -77,3 +79,5 @@ func mercuryStatus() string {
 	}
 	return "direct (today's failures are yours alone)"
 }
+
+var _ widget.Widget = (*Easter)(nil)
