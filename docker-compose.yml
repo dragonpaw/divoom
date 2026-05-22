@@ -17,4 +17,5 @@ services:
       NASA_API_KEY: ${NASA_API_KEY:-}
       GITHUB_USER: ${GITHUB_USER:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      WORDNIK_API_KEY: ${WORDNIK_API_KEY:-}
     command: ["serve"]
