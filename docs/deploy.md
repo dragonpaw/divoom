@@ -26,7 +26,7 @@ compose contents on every deploy.
    `docker-compose.yml` from this repo with the environment vars from
    `.env`. After creation, copy the stack ID from the URL
    (`/#!/<endpoint>/docker/stacks/<id>`) into
-   `~/.config/divoom/portainer-stack-id`.
+   The stack itself doesn't need to exist beforehand — `make deploy` finds the stack named `divoom` (override with `STACK_NAME=...`) or creates it if it's not there.
 
 4. **Local `.env`.** Copy `.env.example` to `.env` and fill in API keys
    (`NASA_API_KEY`, `GITHUB_USER`, `GITHUB_TOKEN`) and the frame's

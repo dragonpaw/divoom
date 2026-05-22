@@ -1,6 +1,5 @@
 # Build + push + deploy the divoom dashboard to the Portainer instance on the
-# home NAS. See docs/deploy.md for one-time setup (GHCR PAT, Portainer API
-# key, stack ID).
+# home NAS. See docs/deploy.md for one-time setup (GHCR PAT, Portainer API key).
 
 IMAGE       := ghcr.io/dragonpaw/divoom
 GHCR_USER   ?= dragonpaw
@@ -11,20 +10,11 @@ ENV_FILE    := .env
 PORTAINER_URL        ?= http://10.0.2.201:19900
 PORTAINER_ENDPOINT   ?= 1
 PORTAINER_API_KEY    ?= $(or $(PORTAINER_TOKEN),$(shell cat $(HOME)/.config/divoom/portainer-key 2>/dev/null))
-PORTAINER_STACK_ID   ?= $(shell cat $(HOME)/.config/divoom/portainer-stack-id 2>/dev/null)
+STACK_NAME           ?= divoom
 
 .PHONY: all build login push deploy stacks
 
 all: build push deploy
-
-# List Portainer stacks (id, name, endpoint) — handy for finding the
-# numeric STACK_ID to drop into ~/.config/divoom/portainer-stack-id.
-stacks:
-	@test -n "$(PORTAINER_API_KEY)" || { echo "PORTAINER_API_KEY not set (env or ~/.config/divoom/portainer-key)"; exit 1; }
-	@curl -sS -H "X-API-Key: $(PORTAINER_API_KEY)" \
-	    "$(PORTAINER_URL)/api/stacks" \
-	    | jq -r '["ID","NAME","ENDPOINT"], (.[] | [.Id, .Name, .EndpointId]) | @tsv' \
-	    | column -t -s "$$(printf '\t')"
 
 build:
 	podman build -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
@@ -42,40 +32,50 @@ push: login
 	podman push $(IMAGE):$(VERSION)
 	podman push $(IMAGE):latest
 
-# Editor-style stack update. Portainer CE has no webhook / git redeploy worth
-# trusting, so we PUT the compose contents straight at:
+# List Portainer stacks (id, name, endpoint).
+stacks:
+	@test -n "$(PORTAINER_API_KEY)" || { echo "PORTAINER_API_KEY not set (env or ~/.config/divoom/portainer-key)"; exit 1; }
+	@curl -sS -H "X-API-Key: $(PORTAINER_API_KEY)" \
+	    "$(PORTAINER_URL)/api/stacks" \
+	    | jq -r '["ID","NAME","ENDPOINT"], (.[] | [.Id, .Name, .EndpointId]) | @tsv' \
+	    | column -t -s "$$(printf '\t')"
+
+# Find the stack named $(STACK_NAME); create it if missing, update it if
+# present. Portainer CE has no webhook / git redeploy worth trusting, so
+# we send compose contents inline either way:
 #
-#   PUT $PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT
-#   X-API-Key: $PORTAINER_API_KEY
-#   {
-#     "stackFileContent": "<contents of docker-compose.yml>",
-#     "env":              [{"name": "FOO", "value": "bar"}, ...],
-#     "prune":            true,
-#     "pullImage":        true
-#   }
+#   POST $URL/api/stacks/create/standalone/string?endpointId=$ENDPOINT  (create)
+#   PUT  $URL/api/stacks/$ID?endpointId=$ENDPOINT                       (update)
 #
-# `env` is sourced from .env (KEY=VALUE lines, blanks and # comments
-# skipped). jq builds both the env array and the JSON envelope so that
-# shell-special characters in values survive unescaped.
+# `env` is sourced from .env (KEY=VALUE lines; blanks and # comments skipped).
+# jq builds both the env array and the JSON envelope so that shell-special
+# characters in values survive unescaped.
 deploy: push
-	@test -n "$(PORTAINER_API_KEY)"  || { echo "PORTAINER_API_KEY not set (env or ~/.config/divoom/portainer-key)"; exit 1; }
-	@test -n "$(PORTAINER_STACK_ID)" || { echo "PORTAINER_STACK_ID not set (env or ~/.config/divoom/portainer-stack-id)"; exit 1; }
-	@test -f $(COMPOSE)              || { echo "$(COMPOSE) missing"; exit 1; }
-	@test -f $(ENV_FILE)             || { echo "$(ENV_FILE) missing (copy from .env.example)"; exit 1; }
-	@body=$$(jq -n \
-	    --rawfile compose $(COMPOSE) \
-	    --rawfile envfile $(ENV_FILE) \
-	    '{ stackFileContent: $$compose,
-	       env: ($$envfile | split("\n")
-	                       | map(select(test("^\\s*[^#\\s]") and contains("=")))
-	                       | map(capture("^(?<name>[^=]+)=(?<value>.*)$$"))),
-	       prune: true,
-	       pullImage: true }'); \
-	status=$$(curl -sS -o /tmp/portainer-deploy.out -w '%{http_code}' \
-	    -X PUT "$(PORTAINER_URL)/api/stacks/$(PORTAINER_STACK_ID)?endpointId=$(PORTAINER_ENDPOINT)" \
-	    -H "X-API-Key: $(PORTAINER_API_KEY)" \
-	    -H "Content-Type: application/json" \
-	    --data-binary "$$body"); \
+	@test -n "$(PORTAINER_API_KEY)" || { echo "PORTAINER_API_KEY not set (env or ~/.config/divoom/portainer-key)"; exit 1; }
+	@test -f $(COMPOSE)             || { echo "$(COMPOSE) missing"; exit 1; }
+	@test -f $(ENV_FILE)            || { echo "$(ENV_FILE) missing (copy from .env.example)"; exit 1; }
+	@stack_id=$$(curl -sS -H "X-API-Key: $(PORTAINER_API_KEY)" "$(PORTAINER_URL)/api/stacks" \
+	    | jq -r --arg n "$(STACK_NAME)" '.[] | select(.Name == $$n) | .Id' | head -1); \
+	env_json=$$(jq -n --rawfile envfile $(ENV_FILE) \
+	    '$$envfile | split("\n") | map(select(test("^\\s*[^#\\s]") and contains("=")))
+	                            | map(capture("^(?<name>[^=]+)=(?<value>.*)$$"))'); \
+	if [ -z "$$stack_id" ]; then \
+	    echo "creating new stack '$(STACK_NAME)'"; \
+	    body=$$(jq -n --rawfile compose $(COMPOSE) --argjson env "$$env_json" --arg name "$(STACK_NAME)" \
+	        '{ name: $$name, stackFileContent: $$compose, env: $$env }'); \
+	    status=$$(curl -sS -o /tmp/portainer-deploy.out -w '%{http_code}' \
+	        -X POST "$(PORTAINER_URL)/api/stacks/create/standalone/string?endpointId=$(PORTAINER_ENDPOINT)" \
+	        -H "X-API-Key: $(PORTAINER_API_KEY)" -H "Content-Type: application/json" \
+	        --data-binary "$$body"); \
+	else \
+	    echo "updating existing stack '$(STACK_NAME)' (id=$$stack_id)"; \
+	    body=$$(jq -n --rawfile compose $(COMPOSE) --argjson env "$$env_json" \
+	        '{ stackFileContent: $$compose, env: $$env, prune: true, pullImage: true }'); \
+	    status=$$(curl -sS -o /tmp/portainer-deploy.out -w '%{http_code}' \
+	        -X PUT "$(PORTAINER_URL)/api/stacks/$$stack_id?endpointId=$(PORTAINER_ENDPOINT)" \
+	        -H "X-API-Key: $(PORTAINER_API_KEY)" -H "Content-Type: application/json" \
+	        --data-binary "$$body"); \
+	fi; \
 	echo "portainer status: $$status"; \
 	cat /tmp/portainer-deploy.out; echo; \
 	case "$$status" in 2*) exit 0 ;; *) exit 1 ;; esac
