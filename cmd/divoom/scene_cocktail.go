@@ -24,10 +24,14 @@ func cocktailScene(widgets map[string]widget.Widget) *scene.Scene {
 		Elements: []frame.DispElement{
 			sceneTitle("cocktail"),
 			// Full-width image — URL set by the Mount.Geometry hook.
+			// Font/color stubs needed even though Image elements ignore
+			// them — see scene_nasa.go for the same workaround.
 			{
 				ID: idSceneMain, Type: "Image",
 				StartX: 20, StartY: 540, Width: 760, Height: 480,
 				Align: 2,
+				FontSize: 16, FontID: fontProse,
+				FontColor: cFg, BgColor: cBgHard,
 			},
 			// Drink name — big prose.
 			{

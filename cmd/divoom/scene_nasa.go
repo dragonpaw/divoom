@@ -22,10 +22,18 @@ func nasaScene(widgets map[string]widget.Widget) *scene.Scene {
 		Elements: []frame.DispElement{
 			sceneTitle("NASA APOD"),
 			// Full-width image — URL set by the Mount.Geometry hook.
+			// Font/color fields are semantically meaningless for Image
+			// elements but every element in the docs' working example
+			// (docs/upstream/p374.json) carries them, and our previous
+			// payloads that omitted them rendered as background-only
+			// with no image. Likely the device parser drops elements
+			// with missing fields silently.
 			{
 				ID: idSceneSub1, Type: "Image",
 				StartX: 20, StartY: 560, Width: 760, Height: 540,
 				Align: 2,
+				FontSize: 16, FontID: fontProse,
+				FontColor: cFg, BgColor: cBgHard,
 			},
 			// Title underneath the image.
 			{
