@@ -15,3 +15,6 @@ config.local.yaml
 
 # go module cache scratch
 /vendor/
+
+# claude code worktrees
+.claude/
