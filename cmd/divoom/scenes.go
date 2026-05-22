@@ -58,6 +58,7 @@ const (
 	bgCocktail   = "/userdata/wallclock_bg_cocktail.jpg"
 	bgOnThisDay  = "/userdata/wallclock_bg_onthisday.jpg"
 	bgISS        = "/userdata/wallclock_bg_iss.jpg"
+	bgGitHub     = "/userdata/wallclock_bg_github.jpg"
 
 	// One bg per weather outlook so the icon in the bottom-right corner
 	// matches the current condition. Selected at activation time via
@@ -202,7 +203,7 @@ func sceneTitle(text string) frame.DispElement {
 // not present in the map render with a nil Widget (static content
 // only).
 func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
-	return []*scene.Scene{
+	scenes := []*scene.Scene{
 		// "Markets" — QQQ stack: symbol on top, then a (percent, label) pair
 		// for week and again for month. Percents take green/red by sign;
 		// labels stay in fg-dark so they read as captions.
@@ -268,7 +269,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				sceneTitle("moon"),
 				{
 					ID: idSceneMain, Type: "Text",
-					StartX: 20, StartY: 620, Width: 760, Height: 150,
+					StartX: 80, StartY: 620, Width: 640, Height: 150,
 					Align: 2, FontSize: 80, FontID: fontProse,
 					FontColor: cBlue, BgColor: cBgHard,
 				},
@@ -301,7 +302,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				sceneTitle("Hacker News"),
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 540, Width: 760, Height: 580,
+					StartX: 80, StartY: 540, Width: 640, Height: 580,
 					Align: 2, FontSize: 34, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
@@ -327,28 +328,28 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				// Big percentage
 				{
 					ID: idSceneMain, Type: "Text",
-					StartX: 20, StartY: 540, Width: 760, Height: 200,
+					StartX: 80, StartY: 540, Width: 640, Height: 200,
 					Align: 2, FontSize: 180, FontID: fontMono,
 					FontColor: cOrange, BgColor: cBgHard,
 				},
 				// "Year 2026" — below the progress bar at y=755-815
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 850, Width: 760, Height: 70,
+					StartX: 80, StartY: 850, Width: 640, Height: 70,
 					Align: 2, FontSize: 56, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
 				// "Day 142 of 366"
 				{
 					ID: idSceneSub2, Type: "Text",
-					StartX: 20, StartY: 940, Width: 760, Height: 60,
+					StartX: 80, StartY: 940, Width: 640, Height: 60,
 					Align: 2, FontSize: 40, FontID: fontProse,
 					FontColor: cFgDark, BgColor: cBgHard,
 				},
 				// "year progress" caption under the body block
 				{
 					ID: idSceneSub3, Type: "Text",
-					StartX: 20, StartY: 1080, Width: 760, Height: 50,
+					StartX: 80, StartY: 1080, Width: 640, Height: 50,
 					Align: 2, FontSize: 28, FontID: fontProse,
 					FontColor: cFgDark, BgColor: cBgHard,
 					TextMessage: "year progress",
@@ -398,8 +399,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 		// communal) and no tagline.
 		DictionaryScene(DictionarySceneOpts{
 			Name: "jargon", Title: "Jargon File", Weight: 20, BgPath: bgJargon,
-			Widget:        widgets["jargon"],
-			HeadwordColor: cYellow,
+			Widget: widgets["jargon"],
 		}),
 
 		// "ZenQuotes" — sky-blue, contemplative.
@@ -416,11 +416,9 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 		// author block (Bierce baked in) and the period tagline below.
 		DictionaryScene(DictionarySceneOpts{
 			Name: "devil", Title: "Devil's Dictionary", Weight: 20, BgPath: bgDevil,
-			Widget:        widgets["devil"],
-			HeadwordColor: cRed,
-			HasAuthor:     true,
-			Tagline:       "Cynic's Word Book, 1906",
-			TaglineColor:  cRed,
+			Widget:    widgets["devil"],
+			HasAuthor: true,
+			Tagline:   "Cynic's Word Book, 1906",
 		}),
 
 		// "Cat facts" — promoted out of the whimsy rotator into its own
@@ -439,7 +437,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				sceneTitle("cat fact"),
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 540, Width: 760, Height: 560,
+					StartX: 80, StartY: 540, Width: 640, Height: 560,
 					Align: 2, FontSize: 38, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
@@ -466,7 +464,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				sceneTitle("did you know?"),
 				{
 					ID: idSceneMain, Type: "Text",
-					StartX: 20, StartY: 540, Width: 760, Height: 560,
+					StartX: 80, StartY: 540, Width: 640, Height: 560,
 					Align: 2, FontSize: 38, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
@@ -494,14 +492,14 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				// Date row — "On <Month> <DD>", under the title.
 				{
 					ID: idSceneMain, Type: "Text",
-					StartX: 20, StartY: 540, Width: 760, Height: 60,
+					StartX: 80, StartY: 540, Width: 640, Height: 60,
 					Align: 2, FontSize: 36, FontID: fontProseLight,
 					FontColor: cFgDark, BgColor: cBgHard,
 				},
 				// Body — event prose, vCentered.
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 620, Width: 760, Height: 620,
+					StartX: 80, StartY: 620, Width: 640, Height: 620,
 					Align: 2, FontSize: 36, FontID: fontProseLight,
 					FontColor: cFg, BgColor: cBgHard,
 				},
@@ -527,24 +525,40 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 			BgPath: bgSunrise,
 			Elements: []frame.DispElement{
 				sceneTitle("today"),
+				// "sunrise" legend.
+				{
+					ID: idSceneMain, Type: "Text",
+					StartX: 80, StartY: 555, Width: 640, Height: 40,
+					Align: 2, FontSize: 30, FontID: fontProseLight,
+					FontColor: cFgDark, BgColor: cBgHard,
+					TextMessage: "sunrise",
+				},
 				// Sunrise time — big, yellow.
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 560, Width: 760, Height: 120,
+					StartX: 80, StartY: 600, Width: 640, Height: 120,
 					Align: 2, FontSize: 84, FontID: fontMono,
 					FontColor: cYellow, BgColor: cBgHard,
 				},
-				// Sunset time — big, orange.
+				// "sunset" legend.
 				{
 					ID: idSceneSub2, Type: "Text",
-					StartX: 20, StartY: 700, Width: 760, Height: 120,
+					StartX: 80, StartY: 740, Width: 640, Height: 40,
+					Align: 2, FontSize: 30, FontID: fontProseLight,
+					FontColor: cFgDark, BgColor: cBgHard,
+					TextMessage: "sunset",
+				},
+				// Sunset time — big, orange.
+				{
+					ID: idSceneSub3, Type: "Text",
+					StartX: 80, StartY: 785, Width: 640, Height: 120,
 					Align: 2, FontSize: 84, FontID: fontMono,
 					FontColor: cOrange, BgColor: cBgHard,
 				},
 				// Daylight duration — medium, fg.
 				{
-					ID: idSceneSub3, Type: "Text",
-					StartX: 20, StartY: 840, Width: 760, Height: 100,
+					ID: idSceneSub4, Type: "Text",
+					StartX: 80, StartY: 940, Width: 640, Height: 100,
 					Align: 2, FontSize: 50, FontID: fontMono,
 					FontColor: cFg, BgColor: cBgHard,
 				},
@@ -552,8 +566,8 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 			Widget: widgets["sunrise"],
 			Mounts: []scene.Mount{
 				{ID: idSceneSub1, Format: pipeAt(0)},
-				{ID: idSceneSub2, Format: pipeAt(1)},
-				{ID: idSceneSub3, Format: pipeAt(2)},
+				{ID: idSceneSub3, Format: pipeAt(1)},
+				{ID: idSceneSub4, Format: pipeAt(2)},
 			},
 		},
 
@@ -586,14 +600,14 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				// red when outlook == "hazard").
 				{
 					ID: idSceneMain, Type: "Text",
-					StartX: 20, StartY: 530, Width: 760, Height: 240,
+					StartX: 80, StartY: 530, Width: 640, Height: 240,
 					Align: 2, FontSize: 180, FontID: fontProseLight,
 					FontColor: cFg, BgColor: cBgHard,
 				},
 				// Condition word — medium prose, colour set by formatter.
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 820, Width: 760, Height: 120,
+					StartX: 80, StartY: 820, Width: 640, Height: 120,
 					Align: 2, FontSize: 70, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
@@ -601,7 +615,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				// is active for the configured point.
 				{
 					ID: idSceneSub2, Type: "Text",
-					StartX: 20, StartY: 960, Width: 760, Height: 80,
+					StartX: 80, StartY: 960, Width: 640, Height: 80,
 					Align: 2, FontSize: 40, FontID: fontProseLight,
 					FontColor: cRed, BgColor: cBgHard,
 				},
@@ -637,7 +651,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				// Title underneath the image.
 				{
 					ID: idSceneSub2, Type: "Text",
-					StartX: 20, StartY: 1120, Width: 760, Height: 80,
+					StartX: 80, StartY: 1120, Width: 640, Height: 80,
 					Align: 2, FontSize: 36, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
@@ -686,14 +700,14 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				// Drink name — big prose.
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 1040, Width: 760, Height: 100,
+					StartX: 80, StartY: 1040, Width: 640, Height: 100,
 					Align: 2, FontSize: 60, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
 				// Ingredient list — small, dim.
 				{
 					ID: idSceneSub2, Type: "Text",
-					StartX: 20, StartY: 1160, Width: 760, Height: 70,
+					StartX: 80, StartY: 1160, Width: 640, Height: 70,
 					Align: 2, FontSize: 28, FontID: fontProse,
 					FontColor: cFgDark, BgColor: cBgHard,
 				},
@@ -730,7 +744,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 				sceneTitle("easter egg"),
 				{
 					ID: idSceneMain, Type: "Text",
-					StartX: 20, StartY: 540, Width: 760, Height: 110,
+					StartX: 80, StartY: 540, Width: 640, Height: 110,
 					Align: 2, FontSize: 36, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
@@ -790,6 +804,98 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 			},
 		},
 	}
+
+	// "GitHub" — today's commit count, current contribution streak, and
+	// open-PR count for the configured user. Only registered when the
+	// widget is wired in (cmd/divoom/serve.go gates on the GITHUB_USER +
+	// GITHUB_TOKEN env vars and omits the widget entirely when either is
+	// unset); without the conditional append the scene would still be in
+	// the rotation as a dead nil-widget slot showing the static "GitHub"
+	// title and nothing else.
+	if w := widgets["github"]; w != nil {
+		scenes = append(scenes, &scene.Scene{
+			Name:   "github",
+			Weight: 20,
+			BgPath: bgGitHub,
+			Elements: []frame.DispElement{
+				sceneTitle("GitHub"),
+				// Today's commit count — big mono. cGreen when non-zero so
+				// a productive day reads bright; cFgDark when zero so a
+				// quiet day fades into the background.
+				{
+					ID: idSceneMain, Type: "Text",
+					StartX: 80, StartY: 540, Width: 640, Height: 160,
+					Align: 2, FontSize: 130, FontID: fontMono,
+					FontColor: cFgDark, BgColor: cBgHard,
+				},
+				// Current streak — medium mono. cYellow above 7 days as a
+				// "you're on a roll" signal; cFgDark below so short streaks
+				// don't shout for attention.
+				{
+					ID: idSceneSub1, Type: "Text",
+					StartX: 80, StartY: 720, Width: 640, Height: 120,
+					Align: 2, FontSize: 70, FontID: fontMono,
+					FontColor: cFgDark, BgColor: cBgHard,
+				},
+				// Open PRs — small prose, aqua. Always rendered with the
+				// "PRs" suffix so the unit is unambiguous next to the
+				// numeric streak above.
+				{
+					ID: idSceneSub2, Type: "Text",
+					StartX: 80, StartY: 860, Width: 640, Height: 120,
+					Align: 2, FontSize: 36, FontID: fontProse,
+					FontColor: cAqua, BgColor: cBgHard,
+				},
+			},
+			Widget: w,
+			Mounts: []scene.Mount{
+				{ID: idSceneMain, Format: githubCommits},
+				{ID: idSceneSub1, Format: githubStreak},
+				{ID: idSceneSub2, Format: githubPRs},
+			},
+		})
+	}
+
+	return scenes
+}
+
+// --- github formatters ---
+//
+// Widget output: "<today_commits>|<streak_days>|<open_prs>", e.g. "3|42|7".
+// Each formatter pulls one segment and tags the right colour/label so the
+// scene's three rows read with their meaning attached.
+
+func githubCommits(raw string) (text, color string) {
+	parts := strings.Split(raw, "|")
+	if len(parts) < 1 {
+		return "0", cFgDark
+	}
+	n, _ := strconv.Atoi(parts[0])
+	if n > 0 {
+		return parts[0], cGreen
+	}
+	return parts[0], cFgDark
+}
+
+func githubStreak(raw string) (text, color string) {
+	parts := strings.Split(raw, "|")
+	if len(parts) < 2 {
+		return "0d", cFgDark
+	}
+	n, _ := strconv.Atoi(parts[1])
+	c := cFgDark
+	if n > 7 {
+		c = cYellow
+	}
+	return parts[1] + "d streak", c
+}
+
+func githubPRs(raw string) (text, color string) {
+	parts := strings.Split(raw, "|")
+	if len(parts) < 3 {
+		return "0 open PRs", cAqua
+	}
+	return parts[2] + " open PRs", cAqua
 }
 
 // --- QQQ formatters ---
@@ -861,17 +967,6 @@ func pipeAtColor(i int, c string) func(raw string) (text, color string) {
 			return "", c
 		}
 		return parts[i], c
-	}
-}
-
-// pipeAtUnquoted is pipeAt with stripQuotes applied to the picked
-// segment — used by the quote scene's body element so the dedicated
-// author block isn't doubled up by literal quotation marks wrapping
-// the prose.
-func pipeAtUnquoted(i int) func(raw string) (text, color string) {
-	return func(raw string) (text, color string) {
-		text, color = pipeAt(i)(raw)
-		return stripQuotes(text), color
 	}
 }
 
@@ -1001,23 +1096,54 @@ func shrinkHeadword(text string, e frame.DispElement) frame.DispElement {
 	return e
 }
 
-// vCenterDictionaryBody is vCenterQuoteBody with a tighter track that
-// sits below the dictionary scene's headword+POS rows (which end at
-// ~y=700). Keeps long definitions from bleeding upward into the
-// headword zone — the SCSI bug we hit before tuning the regex.
-func vCenterDictionaryBody(text string, e frame.DispElement) frame.DispElement {
+// fitDictionaryBody shrinks the dictionary scene's definition FontSize
+// (within a clamped range) so even long entries fit inside the body
+// track without the device clipping them, then vertically centres
+// what's left so short definitions don't anchor to the top.
+//
+// The track is y=720..1100 (380px), below the headword+POS rows.
+// charWidthRatio and lineHeightFrac are empirical estimates for
+// Roboto Condensed Light at the FontSizes we walk through; tune via
+// device probing if entries still clip.
+func fitDictionaryBody(text string, e frame.DispElement) frame.DispElement {
 	const (
-		charsPerLine = 32
-		lineHeight   = 45
-		trackTop     = 720
-		trackBottom  = 1100
+		maxFontSize    = 34
+		minFontSize    = 22
+		trackTop       = 720
+		trackBottom    = 1100
+		charWidthRatio = 0.45 // px per char ≈ FontSize * this
+		lineHeightFrac = 1.30 // px per line ≈ FontSize * this
 	)
 	const trackH = trackBottom - trackTop
-	lines := (len(text) + charsPerLine - 1) / charsPerLine
-	if lines < 1 {
-		lines = 1
+	if text == "" {
+		e.StartY = trackTop
+		e.Height = trackH
+		return e
 	}
-	rendered := lines * lineHeight
+
+	// Walk FontSize from the preferred max down to the minimum, picking
+	// the first one whose estimated rendered height fits inside the
+	// track. Falls back to the minimum if even that overflows.
+	fs := minFontSize
+	rendered := trackH
+	for size := maxFontSize; size >= minFontSize; size-- {
+		charsPerLine := int(float64(e.Width) / (float64(size) * charWidthRatio))
+		if charsPerLine < 1 {
+			charsPerLine = 1
+		}
+		lines := (len(text) + charsPerLine - 1) / charsPerLine
+		if lines < 1 {
+			lines = 1
+		}
+		h := int(float64(lines*size) * lineHeightFrac)
+		if h <= trackH {
+			fs = size
+			rendered = h
+			break
+		}
+	}
+
+	e.FontSize = fs
 	if rendered >= trackH {
 		e.StartY = trackTop
 		e.Height = trackH
@@ -1028,30 +1154,6 @@ func vCenterDictionaryBody(text string, e frame.DispElement) frame.DispElement {
 	return e
 }
 
-// stripQuotes removes a matching pair of opening/closing quotation
-// marks bracketing s. ASCII " and ' plus the Unicode curly variants
-// are recognised; only one pair is stripped (nested quotes inside the
-// body are intentional and stay).
-func stripQuotes(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) < 2 {
-		return s
-	}
-	pairs := []struct{ open, close string }{
-		{"\"", "\""},
-		{"'", "'"},
-		{"“", "”"}, // “ ”
-		{"‘", "’"}, // ‘ ’
-		{"«", "»"}, // « »
-	}
-	for _, p := range pairs {
-		if strings.HasPrefix(s, p.open) && strings.HasSuffix(s, p.close) &&
-			len(s) >= len(p.open)+len(p.close) {
-			return strings.TrimSpace(s[len(p.open) : len(s)-len(p.close)])
-		}
-	}
-	return s
-}
 
 // --- weather formatters ---
 //
@@ -1214,7 +1316,7 @@ func QuoteScene(opts QuoteSceneOpts) *scene.Scene {
 		quoteBody(idSceneSub1),
 	}
 	mounts := []scene.Mount{
-		{ID: idSceneSub1, Format: pipeAtUnquoted(1), Geometry: vCenterQuoteBody},
+		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBody},
 	}
 	if opts.HasAuthor {
 		elements = append(elements, quoteAuthor(idSceneSub2))
@@ -1275,16 +1377,19 @@ func quoteTagline(id int, text, color string) frame.DispElement {
 // DictionarySceneOpts describes a dictionary-shaped scene. HasAuthor adds
 // the author element + mount (segment 2 of the widget output). Tagline
 // adds a static caption beneath everything else.
+//
+// Colours are intentionally NOT options: every dictionary scene uses
+// the same palette (yellow headword, aqua POS/author, dim tagline) so
+// they read as a consistent typographic family even when the source
+// material differs.
 type DictionarySceneOpts struct {
-	Name          string
-	Title         string
-	Weight        int
-	BgPath        string
-	Widget        widget.Widget
-	HeadwordColor string
-	HasAuthor     bool
-	Tagline       string
-	TaglineColor  string
+	Name      string
+	Title     string
+	Weight    int
+	BgPath    string
+	Widget    widget.Widget
+	HasAuthor bool
+	Tagline   string
 }
 
 func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
@@ -1300,7 +1405,7 @@ func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
 			ID: idSceneSub1, Type: "Text",
 			StartX: 80, StartY: 540, Width: 640, Height: 100,
 			Align: 2, FontSize: 90, FontID: fontProseLight,
-			FontColor: opts.HeadwordColor, BgColor: cBgHard,
+			FontColor: cYellow, BgColor: cBgHard,
 		},
 		// Part of speech (medium prose, aqua).
 		{
@@ -1321,7 +1426,7 @@ func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
 	mounts := []scene.Mount{
 		{ID: idSceneSub1, Format: dictionaryWord, Geometry: shrinkHeadword},
 		{ID: idSceneSub2, Format: dictionaryPOS, AllowEmpty: true},
-		{ID: idSceneSub3, Format: dictionaryDefinition, Geometry: vCenterDictionaryBody},
+		{ID: idSceneSub3, Format: dictionaryDefinition, Geometry: fitDictionaryBody},
 	}
 	if opts.HasAuthor {
 		elements = append(elements, frame.DispElement{
@@ -1339,7 +1444,7 @@ func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
 			ID: idSceneSub5, Type: "Text",
 			StartX: 80, StartY: 1170, Width: 640, Height: 50,
 			Align: 2, FontSize: 26, FontID: fontProseLight,
-			FontColor: opts.TaglineColor, BgColor: cBgHard,
+			FontColor: cFgDark, BgColor: cBgHard,
 			TextMessage: opts.Tagline,
 		})
 	}

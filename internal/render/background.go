@@ -95,6 +95,7 @@ const (
 	SceneCocktail
 	SceneOnThisDay
 	SceneISS
+	SceneGitHub
 )
 
 // SceneBackground builds the hero frame and draws the scene's glyph into
@@ -529,6 +530,12 @@ func drawSceneGlyph(img *image.RGBA, scene Scene) {
 		// Dictionary.
 		drawDevil(img, cx, cy, c)
 
+	case SceneGitHub:
+		// Git branch-diamond from Bootstrap Icons (see assets.go). Same
+		// mask-overpaint treatment as the Starfleet delta. Reads as
+		// "version control" without invoking GitHub's trademarked octocat.
+		drawGit(img, cx, cy, c)
+
 	case SceneISS:
 		// Stylised satellite silhouette: small central body with two long
 		// thin solar panels flanking it horizontally, plus a short antenna
@@ -711,6 +718,27 @@ func drawQuestion(img *image.RGBA, cx, cy int, c color.RGBA) {
 		questionMask = m
 	})
 	paintMask(img, questionMask, cx, cy, c)
+}
+
+// gitMask is the decoded git branch-diamond silhouette PNG; loaded once
+// on first use. Same alpha-threshold treatment as the starfleet delta.
+var (
+	gitOnce sync.Once
+	gitMask image.Image
+)
+
+// drawGit paints the git branch-diamond silhouette centred on (cx, cy)
+// in colour c. Mirror of drawQuestion — embedded PNG decoded once, then
+// handed to paintMask.
+func drawGit(img *image.RGBA, cx, cy int, c color.RGBA) {
+	gitOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(gitPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded git: %w", err))
+		}
+		gitMask = m
+	})
+	paintMask(img, gitMask, cx, cy, c)
 }
 
 // weatherMasks holds the decoded weather-icon silhouettes, keyed by

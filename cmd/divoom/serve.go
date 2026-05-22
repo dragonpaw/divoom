@@ -17,6 +17,7 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget/facts"
 	"github.com/dragonpaw/divoom/internal/widget/finance"
 	"github.com/dragonpaw/divoom/internal/widget/food"
+	githubw "github.com/dragonpaw/divoom/internal/widget/github"
 	"github.com/dragonpaw/divoom/internal/widget/news"
 	"github.com/dragonpaw/divoom/internal/widget/quotes"
 	"github.com/dragonpaw/divoom/internal/widget/sky"
@@ -70,30 +71,44 @@ func runServe(ctx context.Context) error {
 		)
 	}()
 
+	widgets := map[string]widget.Widget{
+		"markets":    finance.NewTicker("QQQ"),
+		"sky":        sky.NewMoon(),
+		"hn":         news.NewHN(hnKeywords),
+		"dayofyear":  calendar.NewDayOfYear(),
+		"easter":     easter.New(),
+		"babylon5":   quotes.NewBabylon5(),
+		"startrek":   quotes.NewStarTrek(),
+		"discworld":  quotes.NewDiscworld(),
+		"jargon":     quotes.NewJargonFile(),
+		"catfacts":   facts.NewCatFact(),
+		"didyouknow": facts.NewUselessFact(),
+		"sunrise":    sky.NewSunrise(),
+		"weather":    weatherWidget,
+		"zenquotes":  quotes.NewZenQuotes(),
+		"devil":      quotes.NewDevilsDictionary(),
+		"nasa":       sky.NewAPOD(),
+		"cocktail":   food.New(),
+		"onthisday":  wikipedia.NewOnThisDay(),
+		"iss":        sky.NewISS("37.9358", "-122.3477"),
+	}
+
+	// GitHub scene is opt-in via env vars. Both must be set: without the
+	// token the unauthenticated REST quota (60 req/hr) is too small for
+	// the rotation cadence, and without the user there's nobody to query
+	// for. When either is missing the widget isn't constructed and
+	// buildScenes drops the scene from the rotation entirely.
+	if ghUser, ghToken := os.Getenv("GITHUB_USER"), os.Getenv("GITHUB_TOKEN"); ghUser != "" && ghToken != "" {
+		widgets["github"] = githubw.New(ghUser, ghToken)
+		slog.Info("github scene enabled", "user", ghUser)
+	} else {
+		slog.Info("github scene disabled (set GITHUB_USER + GITHUB_TOKEN)")
+	}
+
 	driver := &scene.Driver{
 		Client:   client,
 		AlwaysOn: alwaysOn,
-		Scenes: buildScenes(map[string]widget.Widget{
-			"markets":   finance.NewTicker("QQQ"),
-			"sky":       sky.NewMoon(),
-			"hn":        news.NewHN(hnKeywords),
-			"dayofyear": calendar.NewDayOfYear(),
-			"easter":    easter.New(),
-			"babylon5":  quotes.NewBabylon5(),
-			"startrek":  quotes.NewStarTrek(),
-			"discworld": quotes.NewDiscworld(),
-			"jargon":     quotes.NewJargonFile(),
-			"catfacts":   facts.NewCatFact(),
-			"didyouknow": facts.NewUselessFact(),
-			"sunrise":    sky.NewSunrise(),
-			"weather":    weatherWidget,
-			"zenquotes":  quotes.NewZenQuotes(),
-			"devil":      quotes.NewDevilsDictionary(),
-			"nasa":       sky.NewAPOD(),
-			"cocktail":   food.New(),
-			"onthisday":  wikipedia.NewOnThisDay(),
-			"iss":        sky.NewISS("37.9358", "-122.3477"),
-		}),
+		Scenes:   buildScenes(widgets),
 	}
 	logStartup(driver)
 	if err := driver.Run(ctx); err != nil {
@@ -170,6 +185,7 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneCocktail, render.FormatJPEG, now) }, bgCocktail},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneOnThisDay, render.FormatJPEG, now) }, bgOnThisDay},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneISS, render.FormatJPEG, now) }, bgISS},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneGitHub, render.FormatJPEG, now) }, bgGitHub},
 	}
 	// One bg per weather outlook, each carrying the matching icon in the
 	// bottom-right corner; the scene's BgPathFor picks among these at

@@ -110,6 +110,24 @@
 //	  https://raw.githubusercontent.com/erikflowers/weather-icons/master/svg/wi-day-sunny.svg
 //	rsvg-convert -w 200 -h 200 \
 //	  -o internal/render/assets/weather/clear.png /tmp/wi-day-sunny.svg
+//
+// git.png is the "git" branch-diamond icon from Bootstrap Icons (MIT):
+//
+//	https://github.com/twbs/icons
+//	https://raw.githubusercontent.com/twbs/icons/main/icons/git.svg
+//
+// Licensed under the MIT License — Copyright (c) 2019-2024 The Bootstrap
+// Authors. We only use the silhouette; every opaque pixel is overpainted
+// in GruvBgDarker at render time. Chosen for the github scene over the
+// GitHub octocat / Mark logo (trademark-ambiguous) — the git branch glyph
+// is the underlying VCS, recognisable without invoking a trademarked
+// brand.
+//
+// To regenerate the PNG from the source SVG:
+//
+//	curl -o /tmp/git.svg \
+//	  https://raw.githubusercontent.com/twbs/icons/main/icons/git.svg
+//	rsvg-convert -w 200 -h 200 -o internal/render/assets/git.png /tmp/git.svg
 package render
 
 import _ "embed"
@@ -155,3 +173,6 @@ var hazardPNG []byte
 
 //go:embed assets/question.png
 var questionPNG []byte
+
+//go:embed assets/git.png
+var gitPNG []byte
