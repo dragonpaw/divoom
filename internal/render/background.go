@@ -97,6 +97,7 @@ const (
 	SceneISS
 	SceneGitHub
 	SceneTIL
+	SceneWordnik
 )
 
 // SceneBackground builds the hero frame and draws the scene's glyph into
@@ -613,6 +614,13 @@ func drawSceneGlyph(img *image.RGBA, scene Scene) {
 		}, c)
 		// Central hub disc covering the pivot.
 		fillCircle(img, cx, cy, hubR, c)
+
+	case SceneWordnik:
+		// Open book (📖). Same mask-overpaint treatment as the devil /
+		// buddha / question / hazard glyphs; source is a Twemoji SVG
+		// (see assets.go). Reads as the dictionary motif for the
+		// Word of the Day scene.
+		drawBook(img, cx, cy, c)
 	}
 }
 
@@ -769,6 +777,27 @@ func drawTIL(img *image.RGBA, cx, cy int, c color.RGBA) {
 		tilMask = m
 	})
 	paintMask(img, tilMask, cx, cy, c)
+}
+
+// bookMask is the decoded open-book silhouette PNG; loaded once on first
+// use. Same alpha-threshold treatment as the starfleet delta.
+var (
+	bookOnce sync.Once
+	bookMask image.Image
+)
+
+// drawBook paints the open-book silhouette centred on (cx, cy) in colour
+// c. Mirror of drawQuestion — embedded PNG decoded once, then handed to
+// paintMask.
+func drawBook(img *image.RGBA, cx, cy int, c color.RGBA) {
+	bookOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(bookPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded book: %w", err))
+		}
+		bookMask = m
+	})
+	paintMask(img, bookMask, cx, cy, c)
 }
 
 // weatherMasks holds the decoded weather-icon silhouettes, keyed by

@@ -60,6 +60,7 @@ const (
 	bgISS        = "/userdata/wallclock_bg_iss.jpg"
 	bgGitHub     = "/userdata/wallclock_bg_github.jpg"
 	bgTIL        = "/userdata/wallclock_bg_til.jpg"
+	bgWordnik    = "/userdata/wallclock_bg_wordnik.jpg"
 
 	// One bg per weather outlook so the icon in the bottom-right corner
 	// matches the current condition. Selected at activation time via
@@ -420,6 +421,17 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 			Tagline:      "be here now",
 			TaglineColor: cBlue,
 			HasAuthor:    true,
+		}),
+
+		// "Word of the Day" — daily English vocabulary entry from
+		// Wordnik (WORDNIK_API_KEY) with a baked-in day-of-year
+		// fallback list when no key is set. Same dictionary layout
+		// as Jargon / Devil's; purple headword to stay distinct from
+		// jargon yellow and devil red.
+		DictionaryScene(DictionarySceneOpts{
+			Name: "wordnik", Title: "Word of the Day", Weight: 20, BgPath: bgWordnik,
+			Widget:  widgets["wordnik"],
+			Tagline: "wordnik.com",
 		}),
 
 		// "Devil's Dictionary" — Ambrose Bierce, 1906. Dictionary-shaped

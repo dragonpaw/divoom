@@ -95,6 +95,7 @@ func runServe(ctx context.Context) error {
 		"catfacts":   facts.NewCatFact(),
 		"didyouknow": facts.NewUselessFact(),
 		"til":        facts.NewTIL(),
+		"wordnik":    quotes.NewWordnik(),
 		"sunrise":    sky.NewSunrise(),
 		"weather":    weatherWidget,
 		"zenquotes":  quotes.NewZenQuotes(),
@@ -199,6 +200,7 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneISS, render.FormatJPEG, now) }, bgISS},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneGitHub, render.FormatJPEG, now) }, bgGitHub},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneTIL, render.FormatJPEG, now) }, bgTIL},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneWordnik, render.FormatJPEG, now) }, bgWordnik},
 	}
 	// One bg per weather outlook, each carrying the matching icon in the
 	// bottom-right corner; the scene's BgPathFor picks among these at
