@@ -66,6 +66,7 @@ Quirks:
 
 - **Server-side dedup / freshness window**. Two GETs in quick succession from the same source can return an empty `DeviceList` on the second. Cache the result; never poll.
 - Discovery is the only thing we call against Divoom's cloud once we have the device's IP. Treat it as a one-shot lookup at startup, with a long cache and a re-discover-on-failure fallback.
+- **2026-05-22: endpoint observed unreachable** — `app.divoom-gz.com` failed DNS/connect from two independent vantage points. The local device API on the frame itself kept working fine. Reinforces the need for a local-only discovery fallback ([todo](../todo/local-discovery.md)) since the cloud endpoint is a single point of failure outside our control.
 
 ---
 
@@ -392,6 +393,8 @@ Things we learned from running real tests against the device — distinct from w
 | 2026-05-20 | **NetData URLs are fetched server-side by Divoom's cloud, not from the device.** | 3-way probe: docs example URL → rendered `2101`; `jsonplaceholder.typicode.com/posts/1` → rendered `1`; `http://10.0.2.2:8080/probe.json` → screen rendered "Err URL" while our local HTTP server saw **zero** TCP connects from `10.0.2.108`. ICMP and ARP confirm L2 reachability — only a server-side proxy explains the asymmetry. |
 | 2026-05-20 | Self-hosted `BackgroundImageAddr` URLs over HTTP fail silently (same cloud-proxy root cause). | Self-hosted `http://10.0.2.2:<port>/bg.{png,jpg}` never reached our server during multiple test runs. |
 | 2026-05-20 | `adb connect 10.0.2.108:5555` returns "Connection refused". | Tried over TCP; adb-over-network not enabled by default. |
+| 2026-05-22 | **`adb tcpip 5555` from the USB host enables adb-over-network, but does NOT persist across a power cycle.** After reboot the device is back on USB-only adbd; the TCP listener is gone until `adb tcpip 5555` is re-issued from a USB host. Unblocks LAN-side adb workflows *while the current session lasts*, but unreliable as a primary discovery path. A persistent fix would require editing the TinaLinux init scripts on the device. | Issued `adb tcpip 5555` over USB; adbd restarted in TCP mode. After unplug/replug, `adb devices` no longer showed the TCP entry; on power cycle, the device returned as USB-only. |
+| 2026-05-22 | **Cloud discovery `app.divoom-gz.com` observed unreachable.** DNS/connect failed from two independent vantage points. Local device API on the frame kept working. Reinforces the need for local-only discovery. | Two simultaneous `curl` failures; no resolution. |
 | 2026-05-21 | **adb-over-USB works.** Device shows up in `adb devices -l`, serial `20080411`. | USB-C cable from host to frame. |
 | 2026-05-21 | Device runs **TinaLinux + BusyBox 1.33.2**, not Android. | `adb shell` falls into `/bin/login`; `getprop` and other Android-isms don't exist. |
 | 2026-05-21 | `adb shell` is gated by a login prompt we don't have credentials for. | Banner: `TinaLinux login:`. `adb shell -c …` errors with `/bin/login: invalid option -- 'c'`. |
