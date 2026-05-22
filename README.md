@@ -49,7 +49,7 @@ go run ./cmd/divoom probe          # discover the frame, print current dial
 go run ./cmd/divoom display test   # 30s gruvbox test layout, then restore
 go run ./cmd/divoom display ticker # 30s ticker via UpdateDisplayItems
 go run ./cmd/divoom render         # write scene JPGs to ./dist/scenes/
-go run ./cmd/divoom push-bgs       # adb-push scene backgrounds (USB host only)
+go run ./cmd/divoom push           # adb-push scene backgrounds + fonts (USB host only)
 go run ./cmd/divoom serve          # the dashboard daemon
 ```
 

@@ -39,7 +39,7 @@ var hnKeywords = []string{
 // renders from a warm cache without waiting on the network. Time + Date
 // + DoW are always on top; the bottom area swaps Markets / Sky / Ambient.
 func runServe(ctx context.Context) error {
-	slog.Info("scene backgrounds must be pushed separately via `divoom push-bgs` (run from a USB-attached host)")
+	slog.Info("scene backgrounds must be pushed separately via `divoom push` (run from a USB-attached host)")
 
 	client, _, err := connectToFrame(ctx)
 	if err != nil {

@@ -43,7 +43,7 @@ USB-attached dev box. After any scene change (new scene, new bg art,
 new weather outlook tier), run once from the dev box:
 
 ```
-go run ./cmd/divoom push-bgs
+go run ./cmd/divoom push
 ```
 
 Then deploy the daemon:

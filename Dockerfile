@@ -9,7 +9,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/divoom ./cmd/divoo
 # and tzdata (TZ=America/Los_Angeles in compose resolves to a real zoneinfo).
 # No android-tools: this image runs `serve` only, which talks to the frame
 # over LAN via divoom_api on port 9000. Background JPG pushing requires USB
-# adb and is done from the dev box via `divoom push-bgs`, NOT in this image.
+# adb and is done from the dev box via `divoom push`, NOT in this image.
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build /out/divoom /usr/local/bin/divoom

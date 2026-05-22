@@ -32,7 +32,7 @@ func main() {
 		err = runRender(os.Args[2:])
 	case "serve":
 		err = runServe(ctx)
-	case "push-bgs":
+	case "push":
 		err = pushSceneBackgrounds(ctx)
 	case "-h", "--help", "help":
 		usage()
@@ -63,7 +63,7 @@ SUBCOMMANDS
                    Used by CI to publish to the public assets repo.
   serve          Run the dashboard daemon: install layout, poll widgets,
                    rotate scenes.
-  push-bgs       Render every scene background and adb-push it to the frame.
+  push           Render every scene background and adb-push it to the frame.
                    Run from a USB-attached host after any scene change;
                    the daemon container on the NAS can't do this itself.
   help           Show this message.
