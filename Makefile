@@ -13,9 +13,18 @@ PORTAINER_ENDPOINT   ?= 1
 PORTAINER_API_KEY    ?= $(or $(PORTAINER_TOKEN),$(shell cat $(HOME)/.config/divoom/portainer-key 2>/dev/null))
 PORTAINER_STACK_ID   ?= $(shell cat $(HOME)/.config/divoom/portainer-stack-id 2>/dev/null)
 
-.PHONY: all build login push deploy
+.PHONY: all build login push deploy stacks
 
 all: build push deploy
+
+# List Portainer stacks (id, name, endpoint) — handy for finding the
+# numeric STACK_ID to drop into ~/.config/divoom/portainer-stack-id.
+stacks:
+	@test -n "$(PORTAINER_API_KEY)" || { echo "PORTAINER_API_KEY not set (env or ~/.config/divoom/portainer-key)"; exit 1; }
+	@curl -sS -H "X-API-Key: $(PORTAINER_API_KEY)" \
+	    "$(PORTAINER_URL)/api/stacks" \
+	    | jq -r '["ID","NAME","ENDPOINT"], (.[] | [.Id, .Name, .EndpointId]) | @tsv' \
+	    | column -t -s "$$(printf '\t')"
 
 build:
 	podman build -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
