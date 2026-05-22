@@ -27,9 +27,96 @@ func runDisplay(ctx context.Context, args []string) error {
 		return runDisplayTicker(ctx)
 	case "lines":
 		return runDisplayLines(ctx, args[1:])
+	case "image":
+		return runDisplayImage(ctx, args[1:])
 	default:
 		return fmt.Errorf("display: unknown action %q", args[0])
 	}
+}
+
+// runDisplayImage installs a minimal layout with one Image DispElement
+// holding the given URL (default: the docs' known-good test image at
+// f.divoom-gz.com). Used to isolate Image rendering bugs from the rest
+// of the scene machinery.
+//
+//	divoom display image [-url URL]
+func runDisplayImage(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("image", flag.ContinueOnError)
+	url := fs.String("url",
+		"https://f.divoom-gz.com/320320.gif",
+		"image URL to display (default: docs example, known-good)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	client, _, err := connectToFrame(ctx)
+	if err != nil {
+		return err
+	}
+
+	stateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	initial, err := client.GetClockInfo(stateCtx)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("GetClockInfo: %w", err)
+	}
+	slog.Info("captured initial dial", "clock_id", initial.ClockID)
+
+	layout := frame.CustomMode{
+		BackgroundImageLocalFlag: 0,
+		BackgroundImageAddr:      "https://f.divoom-gz.com/group1/M00/0C/53/rBAAM2faipuEYhJQAAAAAAsMG7w762.jpg",
+		DispList: []frame.DispElement{
+			{
+				ID: 1, Type: "Image",
+				StartX: 240, StartY: 480, Width: 320, Height: 320,
+				Align: 2,
+				// Stub font/color fields — Image elements ignore them
+				// but Divoom's parser appears to drop elements that
+				// omit them. See scene_nasa.go.
+				FontSize: 16, FontID: 52,
+				FontColor: "#ebdbb2", BgColor: "#1d2021",
+				Url: *url,
+			},
+			{
+				ID: 2, Type: "Time",
+				StartX: 50, StartY: 900, Width: 700, Height: 200,
+				Align: 2,
+				FontSize: 140, FontID: 52,
+				FontColor: "#ebdbb2", BgColor: "#1d2021",
+			},
+		},
+	}
+
+	slog.Info("installing image-test layout", "url", *url)
+	enterCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := client.EnterCustomMode(enterCtx, layout); err != nil {
+		return fmt.Errorf("EnterCustomControlMode: %w", err)
+	}
+
+	defer func() {
+		bg := context.Background()
+		exitCtx, exitCancel := context.WithTimeout(bg, 5*time.Second)
+		if err := client.ExitCustomMode(exitCtx); err != nil {
+			slog.Error("failed to exit custom mode — frame may be stuck on test layout", "err", err)
+		}
+		exitCancel()
+		selCtx, selCancel := context.WithTimeout(bg, 5*time.Second)
+		if err := client.SelectClock(selCtx, initial.ClockID); err != nil {
+			slog.Warn("could not re-select preset dial", "clock_id", initial.ClockID, "err", err)
+		}
+		selCancel()
+		slog.Info("restored preset dial", "clock_id", initial.ClockID)
+	}()
+
+	const hold = 30 * time.Second
+	slog.Info("holding image-test layout — Ctrl+C to exit early", "hold", hold)
+	select {
+	case <-time.After(hold):
+	case <-ctx.Done():
+		slog.Info("interrupted — restoring frame")
+	}
+	return nil
 }
 
 // runDisplayLines installs one or more stacked Text elements filled with
