@@ -28,7 +28,7 @@ login:
 	    echo "GHCR_PAT not set — relying on existing podman login session"; \
 	fi
 
-push: login
+push: build login
 	podman push $(IMAGE):$(VERSION)
 	podman push $(IMAGE):latest
 
