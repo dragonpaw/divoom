@@ -420,21 +420,33 @@ func runDisplayTest(ctx context.Context) error {
 	return nil
 }
 
-// connectToFrame resolves a Times Frame IP (env override first, cloud
-// discovery otherwise) and returns a ready-to-use API client plus the
-// discovered Device (nil if we used an env override). Shared by `probe`
-// and `display`.
+// connectToFrame resolves a Times Frame IP and returns a ready-to-use API
+// client plus the discovered Device (nil if we used an env override).
+// Preference order:
+//  1. $DIVOOM_FRAME_IP, verified with a Channel/GetClockInfo probe. This is
+//     the LAN-only path that lets the dashboard run when Divoom's cloud
+//     discovery endpoint is down (see todo/local-discovery.md).
+//  2. Cloud LAN discovery via frame.FindTimesFrame.
+//
+// A set-but-unreachable $DIVOOM_FRAME_IP logs a warning and falls through to
+// cloud discovery rather than failing hard — the env var is a hint, not a
+// commitment.
 func connectToFrame(ctx context.Context) (*frame.Client, *frame.Device, error) {
 	if ip := os.Getenv("DIVOOM_FRAME_IP"); ip != "" {
-		slog.Info("using DIVOOM_FRAME_IP override", "ip", ip)
-		return frame.New(ip), nil, nil
+		client, err := probeFrameIP(ctx, ip)
+		if err == nil {
+			slog.Info("using DIVOOM_FRAME_IP override", "ip", ip)
+			return client, nil, nil
+		}
+		slog.Warn("DIVOOM_FRAME_IP probe failed, falling back to cloud discovery",
+			"ip", ip, "err", err)
 	}
 	discoverCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	slog.Info("discovering Times Frame via cloud LAN endpoint")
 	d, err := frame.FindTimesFrame(discoverCtx, os.Getenv("DIVOOM_FRAME_MAC"))
 	if err != nil {
-		return nil, nil, fmt.Errorf("discover: %w", err)
+		return nil, nil, fmt.Errorf("cloud discovery failed (%w); set DIVOOM_FRAME_IP=<frame-ip> to skip cloud lookup", err)
 	}
 	slog.Info("found device",
 		"name", d.DeviceName,
@@ -444,4 +456,17 @@ func connectToFrame(ctx context.Context) (*frame.Client, *frame.Device, error) {
 		"hardware", d.Hardware,
 	)
 	return frame.New(d.DevicePrivateIP), &d, nil
+}
+
+// probeFrameIP verifies that ip is actually a Times Frame by issuing a cheap,
+// always-available command. Returns the client on success so the caller
+// doesn't have to build it twice.
+func probeFrameIP(ctx context.Context, ip string) (*frame.Client, error) {
+	client := frame.New(ip)
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if _, err := client.GetClockInfo(probeCtx); err != nil {
+		return nil, err
+	}
+	return client, nil
 }
