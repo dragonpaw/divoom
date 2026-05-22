@@ -95,7 +95,7 @@ func (s *Scene) Refresh(ctx context.Context) {
 	}
 	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	text, err := s.Widget.Fetch(fetchCtx)
+	text, err := s.fetchWithRecover(fetchCtx)
 	if err != nil {
 		s.mu.Lock()
 		wasHealthy := s.healthy
@@ -117,6 +117,19 @@ func (s *Scene) Refresh(ctx context.Context) {
 	if !wasHealthy {
 		slog.Info("scene recovered", "scene", s.Name, "widget", s.Widget.Name())
 	}
+}
+
+// fetchWithRecover invokes the widget's Fetch and converts a panic
+// into an ordinary error so one buggy widget can't kill the rotation
+// goroutine. The scene then takes the unhealthy path and the picker
+// skips it until a future Refresh succeeds.
+func (s *Scene) fetchWithRecover(ctx context.Context) (text string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("widget panic: %v", r)
+		}
+	}()
+	return s.Widget.Fetch(ctx)
 }
 
 // isHealthy reports whether this scene is currently safe to show. A
