@@ -87,6 +87,24 @@
 //	  https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/2754.svg
 //	rsvg-convert -w 200 -h 200 -o internal/render/assets/question.png /tmp/2754.svg
 //
+// book.png is the "open book" emoji (📖, U+1F4D6) from Twemoji,
+// Twitter's open-source emoji set:
+//
+//	https://github.com/twitter/twemoji
+//	https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f4d6.svg
+//
+// Licensed under CC-BY 4.0 (graphics) — Copyright 2020 Twitter, Inc and
+// other contributors. We only use the silhouette mask; every opaque pixel
+// is overpainted in GruvBgDarker at render time, so the original Twemoji
+// colours are discarded. Used by the wordnik scene as the dictionary
+// motif for Word of the Day.
+//
+// To regenerate the PNG from the source SVG:
+//
+//	curl -o /tmp/1f4d6.svg \
+//	  https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f4d6.svg
+//	rsvg-convert -w 200 -h 200 -o internal/render/assets/book.png /tmp/1f4d6.svg
+//
 // hazard.png is the "warning sign" emoji (⚠, U+26A0) from Twemoji,
 // Twitter's open-source emoji set:
 //
@@ -155,3 +173,6 @@ var hazardPNG []byte
 
 //go:embed assets/question.png
 var questionPNG []byte
+
+//go:embed assets/book.png
+var bookPNG []byte

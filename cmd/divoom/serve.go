@@ -93,6 +93,7 @@ func runServe(ctx context.Context) error {
 			"cocktail":   food.New(),
 			"onthisday":  wikipedia.NewOnThisDay(),
 			"iss":        sky.NewISS("37.9358", "-122.3477"),
+			"wordnik":    quotes.NewWordnik(),
 		}),
 	}
 	logStartup(driver)
@@ -170,6 +171,7 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneCocktail, render.FormatJPEG, now) }, bgCocktail},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneOnThisDay, render.FormatJPEG, now) }, bgOnThisDay},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneISS, render.FormatJPEG, now) }, bgISS},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneWordnik, render.FormatJPEG, now) }, bgWordnik},
 	}
 	// One bg per weather outlook, each carrying the matching icon in the
 	// bottom-right corner; the scene's BgPathFor picks among these at
