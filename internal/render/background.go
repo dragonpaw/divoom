@@ -96,6 +96,7 @@ const (
 	SceneOnThisDay
 	SceneISS
 	SceneGitHub
+	SceneTIL
 )
 
 // SceneBackground builds the hero frame and draws the scene's glyph into
@@ -398,6 +399,13 @@ func drawSceneGlyph(img *image.RGBA, scene Scene) {
 		// mask-driven pattern used by the Starfleet delta / buddha /
 		// weather icons.
 		drawQuestion(img, cx, cy, c)
+
+	case SceneTIL:
+		// Lightbulb (idea / new knowledge) — sourced from the Heroicons
+		// light-bulb solid SVG (see assets.go) and overpainted in c,
+		// matching the mask-driven pattern used by the Starfleet delta /
+		// buddha / question icons.
+		drawTIL(img, cx, cy, c)
 
 	case SceneSunrise:
 		// Sun cresting a horizon: a long thin horizon bar, a sun disc
@@ -740,6 +748,27 @@ func drawBabylon5(img *image.RGBA, cx, cy int, c color.RGBA) {
 		babylon5Mask = m
 	})
 	paintMask(img, babylon5Mask, cx, cy, c)
+}
+
+// tilMask is the decoded lightbulb silhouette PNG; loaded once on first
+// use. Same alpha-threshold treatment as the starfleet delta.
+var (
+	tilOnce sync.Once
+	tilMask image.Image
+)
+
+// drawTIL paints the lightbulb silhouette centred on (cx, cy) in colour
+// c. Mirror of drawQuestion — embedded PNG decoded once, then handed to
+// paintMask.
+func drawTIL(img *image.RGBA, cx, cy int, c color.RGBA) {
+	tilOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(tilPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded til: %w", err))
+		}
+		tilMask = m
+	})
+	paintMask(img, tilMask, cx, cy, c)
 }
 
 // weatherMasks holds the decoded weather-icon silhouettes, keyed by
