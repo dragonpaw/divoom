@@ -19,13 +19,16 @@ all: build push deploy
 build:
 	podman build -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
 
-# Auto-login if GHCR_PAT is in the env; otherwise assume `podman login ghcr.io`
-# was done previously (or that podman has a cached credential).
+# Auto-login if GHCR_PAT or GITHUB_TOKEN is in the env; otherwise assume
+# `podman login ghcr.io` was done previously (or that podman has a cached
+# credential). The same PAT serves both GHCR push and the github-activity
+# scene, so users may keep it in either env var.
 login:
-	@if [ -n "$(GHCR_PAT)" ]; then \
-	    echo "$(GHCR_PAT)" | podman login ghcr.io -u $(GHCR_USER) --password-stdin; \
+	@token="$$GHCR_PAT"; [ -z "$$token" ] && token="$$GITHUB_TOKEN"; \
+	if [ -n "$$token" ]; then \
+	    echo "$$token" | podman login ghcr.io -u $(GHCR_USER) --password-stdin; \
 	else \
-	    echo "GHCR_PAT not set — relying on existing podman login session"; \
+	    echo "neither GHCR_PAT nor GITHUB_TOKEN set — relying on existing podman login session"; \
 	fi
 
 push: build login
@@ -56,11 +59,12 @@ deploy: push
 	@test -f $(ENV_FILE)            || { echo "$(ENV_FILE) missing (copy from .env.example)"; exit 1; }
 	@stack_id=$$(curl -sS -H "X-API-Key: $(PORTAINER_API_KEY)" "$(PORTAINER_URL)/api/stacks" \
 	    | jq -r --arg n "$(STACK_NAME)" '.[] | select(.Name == $$n) | .Id' | head -1); \
-	env_json=$$(jq -n --rawfile envfile $(ENV_FILE) --arg ghcr "$$GHCR_PAT" \
+	tok="$$GHCR_PAT"; [ -z "$$tok" ] && tok="$$GITHUB_TOKEN"; \
+	env_json=$$(jq -n --rawfile envfile $(ENV_FILE) --arg tok "$$tok" \
 	    '$$envfile | split("\n") | map(select(test("^\\s*[^#\\s]") and contains("=")))
 	                            | map(capture("^(?<name>[^=]+)=(?<value>.*)$$"))
-	                            | map(if .name == "GITHUB_TOKEN" and (.value | length) == 0 and ($$ghcr | length) > 0
-	                                  then .value = $$ghcr else . end)'); \
+	                            | map(if .name == "GITHUB_TOKEN" and (.value | length) == 0 and ($$tok | length) > 0
+	                                  then .value = $$tok else . end)'); \
 	if [ -z "$$stack_id" ]; then \
 	    echo "creating new stack '$(STACK_NAME)'"; \
 	    body=$$(jq -n --rawfile compose $(COMPOSE) --argjson env "$$env_json" --arg name "$(STACK_NAME)" \
