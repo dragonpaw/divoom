@@ -1,0 +1,16 @@
+.git/
+.gitignore
+.github/
+.claude/
+todo/
+docs/
+dist/
+*.md
+.env
+.env.local
+.env.example
+.vscode/
+.idea/
+*.swp
+Makefile
+.dockerignore
