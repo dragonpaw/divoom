@@ -684,37 +684,89 @@ func parseWeatherTemp(s string) (n int, unit string, ok bool) {
 	return num, s[i+len("°"):], true
 }
 
-func weatherCondition(raw string) (text, color string) {
+// weatherConditionOrHazard renders the condition-or-hazard slot. When
+// the hazard segment (pipe[2]) is non-empty there's an active NWS alert
+// at the configured point; surface its full text in red so it's
+// unmissable. Otherwise show the outlook word in its outlook colour.
+func weatherConditionOrHazard(raw string) (text, color string) {
+	parts := strings.Split(raw, "|")
+	hazard := ""
+	if len(parts) >= 3 {
+		hazard = parts[2]
+	}
+	if hazard != "" {
+		return hazard, cRed
+	}
 	outlook := weatherOutlookFrom(raw)
 	return outlook, weatherOutlookColor(outlook)
 }
 
-// weatherStats packs the AQI / humidity / rain-probability segments of
-// the widget output into a single " · "-separated stats row. Any blank
-// segment (the widget emits "" when its source field is missing or its
-// fetch errored) is omitted entirely rather than rendered as "0" so a
-// failed AQI lookup doesn't look like clean air. Returns an empty string
-// when all three are missing — the scene mount uses AllowEmpty so the
-// row just stays blank in that case.
-func weatherStats(raw string) (text, color string) {
+// weatherPipeField pulls segment i of a pipe-separated raw string,
+// returning "" when the segment is missing. Used by the three stats
+// formatters below.
+func weatherPipeField(raw string, i int) string {
 	parts := strings.Split(raw, "|")
-	field := func(i int) string {
-		if i < len(parts) {
-			return parts[i]
-		}
+	if i >= len(parts) {
 		return ""
 	}
-	var segs []string
-	if v := field(3); v != "" {
-		segs = append(segs, "AQI "+v)
+	return parts[i]
+}
+
+// weatherAQI renders the AQI value in column 1 of the console strip.
+// Blank field (missing source / failed fetch) becomes a dim em-dash so
+// it doesn't lie about clean air. Otherwise the integer is colour-coded
+// by US EPA AQI band.
+func weatherAQI(raw string) (text, color string) {
+	v := weatherPipeField(raw, 3)
+	if v == "" {
+		return "—", cFgDark
 	}
-	if v := field(4); v != "" {
-		segs = append(segs, v+"% RH")
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return v, cFg
 	}
-	if v := field(5); v != "" {
-		segs = append(segs, v+"% rain")
+	return v, aqiColor(n)
+}
+
+// aqiColor maps an EPA AQI reading to its band colour. Bands are
+// inclusive on the lower bound: 0-50 good, 51-100 moderate, 101-150
+// unhealthy for sensitive groups, 151-200 unhealthy, 201-300 very
+// unhealthy, 301+ hazardous.
+func aqiColor(n int) string {
+	switch {
+	case n <= 50:
+		return cGreen
+	case n <= 100:
+		return cYellow
+	case n <= 150:
+		return cOrange
+	case n <= 200:
+		return cRed
+	case n <= 300:
+		return cPurple
+	default:
+		return cRed
 	}
-	return strings.Join(segs, " · "), cFgDark
+}
+
+// weatherHumidity renders the humidity value in column 2. Blank → dim
+// em-dash; otherwise "<n>%" in blue (the column's element colour).
+func weatherHumidity(raw string) (text, color string) {
+	v := weatherPipeField(raw, 4)
+	if v == "" {
+		return "—", cFgDark
+	}
+	return v + "%", cBlue
+}
+
+// weatherRain renders the rain-chance value in column 3. Blank → dim
+// em-dash; otherwise "<n>%" in aqua.
+func weatherRain(raw string) (text, color string) {
+	v := weatherPipeField(raw, 5)
+	if v == "" {
+		return "—", cFgDark
+	}
+	return v + "%", cAqua
 }
 
 // --- promoted-quote scene helper ---

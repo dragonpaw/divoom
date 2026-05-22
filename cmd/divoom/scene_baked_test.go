@@ -6,23 +6,14 @@ import (
 	"image/color"
 	"image/png"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/dragonpaw/divoom/internal/render"
 )
 
-// resolve fonts/ relative to repo root so the test works regardless of
-// `go test ./...` invocation dir.
-func init() {
-	for _, p := range []string{"fonts/RobotoCondensed-Regular.ttf", "../../fonts/RobotoCondensed-Regular.ttf"} {
-		if _, err := os.Stat(p); err == nil {
-			prosePath = filepath.Clean(p)
-			return
-		}
-	}
-}
+// Font lookup is handled by render.LoadFont, which probes both
+// fonts/<name> and ../../fonts/<name> — no test-side shim required.
 
 // TestBakedCompositeOffline exercises the resize + text-draw + JPEG
 // encode path without hitting the network. Saves the composites to

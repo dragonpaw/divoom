@@ -10,8 +10,12 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"image/png"
+	"log/slog"
 	"sync"
 	"time"
+
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
 )
 
 // Canvas dimensions are fixed by the device: backgrounds MUST be 800x1280.
@@ -132,7 +136,69 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 func SceneWeatherBackground(outlook string, format Format, now time.Time) ([]byte, error) {
 	img := buildHeroImage(now)
 	drawWeatherGlyph(img, outlook)
+	drawWeatherChrome(img)
 	return encodeImage(img, format)
+}
+
+// drawWeatherChrome paints the console-strip dividers and the three
+// column labels (AIR / HUMIDITY / RAIN) into the weather bg. The labels
+// are baked in here instead of carried as device Text elements so the
+// scene stays at the device's six-element cap with the live stat values.
+//
+// Layout: two horizontal hairlines (y=985, y=1095) bracket a 110px-tall
+// stats row, split into three equal-width columns by two vertical
+// hairlines at x=293 and x=506. Each column's label sits centred just
+// below the top hairline.
+func drawWeatherChrome(img *image.RGBA) {
+	const (
+		colLeft   = 80
+		colRight  = 720
+		divider1X = 293
+		divider2X = 506
+		topY      = 985
+		botY      = 1095
+		ruleInset = 3 // pull vertical rules in from the horizontals
+	)
+	// Top + bottom horizontal hairlines, 1px tall.
+	draw.Draw(img,
+		image.Rect(colLeft, topY, colRight, topY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	draw.Draw(img,
+		image.Rect(colLeft, botY, colRight, botY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	// Two vertical hairlines splitting the stats row into three columns.
+	draw.Draw(img,
+		image.Rect(divider1X, topY+ruleInset, divider1X+1, botY-ruleInset),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	draw.Draw(img,
+		image.Rect(divider2X, topY+ruleInset, divider2X+1, botY-ruleInset),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+
+	// Column labels — Roboto Condensed Light, dim, centred in each
+	// column with baseline just below the top rule. Failure to load the
+	// font is logged and swallowed: the lines + values are still
+	// readable without labels, so a missing fonts/ dir shouldn't make
+	// the whole render fail.
+	f, err := LoadFont("RobotoCondensed-Light.ttf")
+	if err != nil {
+		slog.Warn("weather chrome: font load failed; skipping labels", "err", err)
+		return
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size:    22,
+		DPI:     72,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		slog.Warn("weather chrome: face init failed; skipping labels", "err", err)
+		return
+	}
+	defer face.Close()
+
+	const baselineY = 1005
+	drawLabelCentered(img, "AIR", face, 186, baselineY, GruvFgDark)
+	drawLabelCentered(img, "HUMIDITY", face, 399, baselineY, GruvFgDark)
+	drawLabelCentered(img, "RAIN", face, 613, baselineY, GruvFgDark)
 }
 
 // drawEasterEgg paints a giant gruvbox-yellow egg centred in the body

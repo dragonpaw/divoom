@@ -6,22 +6,29 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// "Weather" — current outdoor conditions consolidated with the
-// hazard feeds. Widget emits
-// "<temp>°<unit>|<outlook>|<hazard>|<aqi>|<humidity>|<rain>"; the
-// outlook bucket carries WMO codes, smoke (PM2.5/AQI override),
-// or hazard (active NWS alert at the configured point). The
-// temperature row is huge proportional digits; the condition row
-// is medium prose; the hazard row sits beneath in bright red and
-// is blank when no NWS alert is active; the stats row at the very
-// bottom packs AQI / humidity / rain-chance as " · "-separated
-// fine print (each segment omitted if its source field is blank).
-// Both temp and outlook colours flip to red when outlook ==
-// "hazard". The bg JPG is picked per outlook via BgPathFor so the
-// corner icon matches the current condition. Element count 7 (3
-// top + 4 body) collides with the other 7-element scenes; the
-// driver's same-count rule blocks direct transitions, which is
-// fine.
+// "Weather" — console-strip layout. The widget emits
+// "<temp>°<unit>|<outlook>|<hazard>|<aqi>|<humidity>|<rain>". Six
+// device elements, the maximum we can fit on one scene:
+//
+//   - title row ("weather", small dim)
+//   - big temperature (huge, colour by reading via weatherTempColor)
+//   - condition-or-hazard slot (medium prose; shows the active NWS
+//     alert in red when one is firing, otherwise the outlook word in
+//     its outlook colour)
+//   - three small stat values in a row: AQI, humidity %, rain-chance %
+//
+// The three stat values sit in an "AIR | HUMIDITY | RAIN" console
+// strip whose dividers and column labels are baked into the bg JPG
+// by render.drawWeatherChrome (we're already at the 6-element cap, so
+// the labels can't be device Text elements). Blank stat fields render
+// as a dim "—" rather than "0" so a failed source lookup doesn't lie.
+//
+// AQI colour bands follow the US EPA scale:
+//   0-50 green · 51-100 yellow · 101-150 orange ·
+//   151-200 red · 201-300 purple · 301+ red.
+//
+// The bg JPG is picked per outlook via BgPathFor so the corner glyph
+// matches the current condition.
 func weatherScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "weather",
@@ -32,49 +39,56 @@ func weatherScene(widgets map[string]widget.Widget) *scene.Scene {
 		},
 		Elements: []frame.DispElement{
 			sceneTitle("weather"),
-			// Big temperature — proportional Roboto Condensed Light
-			// so the "63°" centres on its glyph mass (the smaller °
-			// glyph in mono Iosevka pulls the visual centre left of
-			// the geometric centre, leaving the condition word below
-			// looking misaligned). Colour set by formatter (flips
-			// red when outlook == "hazard").
+			// Big temperature — proportional Roboto Condensed Light so
+			// "63°" centres on its glyph mass. Colour set by formatter
+			// (flips red when outlook == "hazard").
 			{
 				ID: idSceneMain, Type: "Text",
-				StartX: 80, StartY: 530, Width: 640, Height: 240,
-				Align: 2, FontSize: 180, FontID: fontProseLight,
+				StartX: 80, StartY: 540, Width: 640, Height: 240,
+				Align: 2, FontSize: 200, FontID: fontProseLight,
 				FontColor: cFg, BgColor: cBgHard,
 			},
-			// Condition word — medium prose, colour set by formatter.
+			// Condition-or-hazard slot — medium prose. Hazard wins when
+			// pipe[2] is non-empty (NWS alert active); otherwise the
+			// outlook word in its outlook colour.
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 80, StartY: 820, Width: 640, Height: 120,
+				StartX: 80, StartY: 790, Width: 640, Height: 80,
 				Align: 2, FontSize: 70, FontID: fontProse,
 				FontColor: cFg, BgColor: cBgHard,
 			},
-			// Hazard message — bright red, blank unless an NWS alert
-			// is active for the configured point.
+			// AQI value — column 1 of the console strip (label "AIR"
+			// baked into bg). Colour by EPA band.
 			{
 				ID: idSceneSub2, Type: "Text",
-				StartX: 80, StartY: 960, Width: 640, Height: 80,
-				Align: 2, FontSize: 40, FontID: fontProseLight,
-				FontColor: cRed, BgColor: cBgHard,
+				StartX: 80, StartY: 1025, Width: 213, Height: 60,
+				Align: 2, FontSize: 56, FontID: fontMono,
+				FontColor: cFg, BgColor: cBgHard,
 			},
-			// Stats row — fine print, "AQI 45 · 62% RH · 30% rain".
-			// Each segment is dropped when its source field is blank;
-			// the whole row is blank when all three are missing.
+			// Humidity value — column 2 ("HUMIDITY"), always blue when
+			// present.
 			{
 				ID: idSceneSub3, Type: "Text",
-				StartX: 80, StartY: 1050, Width: 640, Height: 60,
-				Align: 2, FontSize: 32, FontID: fontProseLight,
-				FontColor: cFgDark, BgColor: cBgHard,
+				StartX: 293, StartY: 1025, Width: 213, Height: 60,
+				Align: 2, FontSize: 56, FontID: fontMono,
+				FontColor: cBlue, BgColor: cBgHard,
+			},
+			// Rain-chance value — column 3 ("RAIN"), always aqua when
+			// present.
+			{
+				ID: idSceneSub4, Type: "Text",
+				StartX: 506, StartY: 1025, Width: 214, Height: 60,
+				Align: 2, FontSize: 56, FontID: fontMono,
+				FontColor: cAqua, BgColor: cBgHard,
 			},
 		},
 		Widget: widgets["weather"],
 		Mounts: []scene.Mount{
 			{ID: idSceneMain, Format: weatherTemp},
-			{ID: idSceneSub1, Format: weatherCondition},
-			{ID: idSceneSub2, Format: pipeAt(2), AllowEmpty: true},
-			{ID: idSceneSub3, Format: weatherStats, AllowEmpty: true},
+			{ID: idSceneSub1, Format: weatherConditionOrHazard},
+			{ID: idSceneSub2, Format: weatherAQI, AllowEmpty: true},
+			{ID: idSceneSub3, Format: weatherHumidity, AllowEmpty: true},
+			{ID: idSceneSub4, Format: weatherRain, AllowEmpty: true},
 		},
 	}
 }

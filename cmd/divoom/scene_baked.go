@@ -394,28 +394,11 @@ var (
 	gruvFgDark = color.RGBA{0xa8, 0x99, 0x84, 0xff}
 )
 
-// fontFaceCache memoises one opentype.Face per (path, size) pair so we
-// don't reparse the TTF on every text call.
-var (
-	fontCache   = map[string]*opentype.Font{}
-	prosePath   = "fonts/RobotoCondensed-Regular.ttf"
-)
-
-func loadFont(path string) (*opentype.Font, error) {
-	if f, ok := fontCache[path]; ok {
-		return f, nil
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	f, err := opentype.Parse(raw)
-	if err != nil {
-		return nil, err
-	}
-	fontCache[path] = f
-	return f, nil
-}
+// proseFontName is the basename under fonts/ that drawCenteredText
+// loads via render.LoadFont. Exposed as a var so tests that run from
+// the package dir don't need to override anything — render.LoadFont
+// already tries ../../fonts/ as a fallback.
+var proseFontName = "RobotoCondensed-Regular.ttf"
 
 // drawCenteredText rasters s centred horizontally and vertically inside
 // rect at the device font-size px equivalent. We treat the DispElement's
@@ -425,7 +408,7 @@ func drawCenteredText(canvas *image.RGBA, s string, rect image.Rectangle, sizePx
 	if s == "" {
 		return nil
 	}
-	f, err := loadFont(prosePath)
+	f, err := render.LoadFont(proseFontName)
 	if err != nil {
 		return err
 	}
