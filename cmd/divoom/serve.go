@@ -48,25 +48,36 @@ func runServe(ctx context.Context) error {
 	}
 
 	weatherWidget := weather.New("37.9358", "-122.3477")
+	// Seed sensible cold/hot defaults for the configured unit. The
+	// scenes.go init() bakes in F defaults (50/80) — for a Celsius
+	// location those make no sense, so swap in C-equivalent values
+	// (~10/27) immediately. LoadThresholds will replace these once
+	// the async fit completes.
+	seedCold, seedHot := 50, 80
+	if weatherWidget.Unit() != "F" {
+		seedCold, seedHot = 10, 27
+	}
+	SetWeatherThresholds(seedCold, seedHot)
 	// Auto-calibrate weather temperature colour thresholds to the
 	// location's climate. Fire-and-forget: daemon startup doesn't wait
 	// on the archive API (it can take 5-10s over 5 years of data).
-	// Until it returns, the static defaults baked into scenes.go
-	// stand; on success the next scene activation picks up the new
-	// bounds via atomic load.
+	// Until it returns, the seeded defaults above stand; on success the
+	// next scene activation picks up the new bounds via atomic load.
 	go func() {
 		cold, hot, err := weatherWidget.LoadThresholds(ctx)
 		if err != nil {
 			slog.Warn("weather threshold calibration failed; using static defaults",
-				"err", err, "cold", 50, "hot", 80)
+				"err", err, "unit", weatherWidget.Unit(),
+				"cold", seedCold, "hot", seedHot)
 			return
 		}
 		SetWeatherThresholds(cold, hot)
 		slog.Info("weather thresholds calibrated",
 			"lat", weatherWidget.Lat(),
 			"lon", weatherWidget.Lon(),
-			"cold_below_F", cold,
-			"hot_at_or_above_F", hot,
+			"unit", weatherWidget.Unit(),
+			"cold_below", cold,
+			"hot_at_or_above", hot,
 		)
 	}()
 
