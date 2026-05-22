@@ -46,16 +46,52 @@ discovery probing — without requiring a USB cable for every reboot.
 
 ## Risks
 
-- **Bricking risk.** Editing init scripts on an embedded device
-  can leave it unbootable. Always pull a backup of the original
-  file before pushing the modified version, and keep a USB cable
-  handy for recovery (USB adb works even when LAN doesn't).
+- **Bricking risk — proven, not theoretical.** First attempt
+  (2026-05-22) was to uncomment the existing `#ADB_TRANSPORT_PORT=5555`
+  line in `/etc/init.d/adbd` and reboot. Result: adbd dead on both
+  USB and TCP after the next power cycle. The Divoom app + local
+  `divoom_api:9000` kept working (separate service), but our only
+  config-poking interface was gone. Recovered via the Divoom app's
+  factory reset, which wipes the overlay filesystem and restores
+  the original init script. **Lesson: do NOT modify `/etc/init.d/adbd`
+  directly.** USB recovery cannot help if the modification kills
+  adbd outright.
 - **Firmware updates.** A Divoom OTA might overwrite the overlay
   or wipe `/etc/init.d/` additions. If we lose the persistence
   after an update, re-apply.
 - **Security.** adb-on-LAN means anyone on the LAN can `adb push`
   files to the device. Home LAN, so accept the risk; document the
   exposure.
+
+## Safer second-attempt strategies
+
+Two paths that don't put adbd's startup at risk:
+
+1. **Side-car init script.** Push a NEW file at
+   `/etc/init.d/S99adb-tcp` (or similar) that runs AFTER adbd starts
+   and executes the equivalent of `adb tcpip 5555` from inside the
+   device — i.e. signal/restart adbd with the env var, or invoke a
+   helper that opens the TCP listener. The existing
+   `/etc/init.d/adbd` is unmodified, so even if the side-car
+   misbehaves, adbd starts normally and USB recovery still works.
+2. **rc.local entry.** Append a line to `/etc/rc.local` that runs
+   after all init scripts; same idea, even smaller blast radius.
+
+In either case, **first push a known-no-op test version** (e.g. an
+init script that just `echo`s to a file) and verify it ran via
+`adb pull` on the log file after a reboot. Only then add the
+behaviour-changing line.
+
+**Always push a pre-built file, never `sed` in place.** Edit the
+file locally in a real editor (so you can eyeball it byte-for-byte),
+keep it checked into this repo under `device-files/` or similar,
+and `adb push` the exact bytes. `sed` can silently mangle CRLF, hit
+unexpected matches, or transform the wrong line if the source
+drifts from what you assumed.
+
+If `ADB_TRANSPORT_PORT` really is the right env var for this adbd,
+the side-car can `kill -HUP` adbd while setting the env so the new
+instance picks it up — without ever touching the original launcher.
 
 ## Verify after implementing
 
