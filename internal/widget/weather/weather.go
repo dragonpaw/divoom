@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -22,6 +23,27 @@ import (
 	"sync"
 	"time"
 )
+
+// ipv4Transport is an http.Transport that forces TCP dials over IPv4.
+// Open-Meteo's IPv6 endpoint (host 2a01:4f8:162:30a1::2) accepts SYN at
+// Hetzner's edge but silently drops further packets — verified 2026-05-22
+// by tracing from a v6-good vantage point. Their IPv4 host works. Rather
+// than wait for the per-call timeout, force the dialer to tcp4 for every
+// Open-Meteo request so calibration + Fetch return promptly.
+var ipv4Transport = &http.Transport{
+	DialContext: (&net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+}
+
+func init() {
+	// Override the Network arg to "tcp4" on every dial.
+	base := ipv4Transport.DialContext
+	ipv4Transport.DialContext = func(ctx context.Context, _, addr string) (net.Conn, error) {
+		return base(ctx, "tcp4", addr)
+	}
+}
 
 // Client hits Open-Meteo's current-weather endpoint for a fixed location.
 // One http.Client with a 10s timeout is reused across Fetch calls.
@@ -76,7 +98,7 @@ func New(lat, lon string) *Client {
 		lat:  lat,
 		lon:  lon,
 		unit: unit,
-		http: &http.Client{Timeout: 10 * time.Second},
+		http: &http.Client{Timeout: 10 * time.Second, Transport: ipv4Transport},
 	}
 }
 
@@ -455,8 +477,9 @@ func (c *Client) fetchThresholds(ctx context.Context) (cold, hot int, err error)
 	)
 
 	// Archive responses over 5 years can be slow — give it a generous
-	// budget, separate from c.http's short Fetch timeout.
-	httpCli := &http.Client{Timeout: 60 * time.Second}
+	// budget, separate from c.http's short Fetch timeout. Force IPv4
+	// for the same Open-Meteo IPv6 reason as the main client.
+	httpCli := &http.Client{Timeout: 60 * time.Second, Transport: ipv4Transport}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return 0, 0, fmt.Errorf("weather: build archive request: %w", err)
