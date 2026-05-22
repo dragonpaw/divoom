@@ -56,9 +56,11 @@ deploy: push
 	@test -f $(ENV_FILE)            || { echo "$(ENV_FILE) missing (copy from .env.example)"; exit 1; }
 	@stack_id=$$(curl -sS -H "X-API-Key: $(PORTAINER_API_KEY)" "$(PORTAINER_URL)/api/stacks" \
 	    | jq -r --arg n "$(STACK_NAME)" '.[] | select(.Name == $$n) | .Id' | head -1); \
-	env_json=$$(jq -n --rawfile envfile $(ENV_FILE) \
+	env_json=$$(jq -n --rawfile envfile $(ENV_FILE) --arg ghcr "$$GHCR_PAT" \
 	    '$$envfile | split("\n") | map(select(test("^\\s*[^#\\s]") and contains("=")))
-	                            | map(capture("^(?<name>[^=]+)=(?<value>.*)$$"))'); \
+	                            | map(capture("^(?<name>[^=]+)=(?<value>.*)$$"))
+	                            | map(if .name == "GITHUB_TOKEN" and (.value | length) == 0 and ($$ghcr | length) > 0
+	                                  then .value = $$ghcr else . end)'); \
 	if [ -z "$$stack_id" ]; then \
 	    echo "creating new stack '$(STACK_NAME)'"; \
 	    body=$$(jq -n --rawfile compose $(COMPOSE) --argjson env "$$env_json" --arg name "$(STACK_NAME)" \
