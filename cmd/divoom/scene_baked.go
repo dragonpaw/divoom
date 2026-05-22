@@ -1,0 +1,482 @@
+package main
+
+// Push-time image compositing for the NASA APOD and Cocktail scenes.
+//
+// Background — Divoom's cloud proxy whitelists only `f.divoom-gz.com` for
+// Image DispElement URLs (see docs/api.md and
+// memory/feedback_netdata_cloud_proxy.md). Fetching APOD / cocktail
+// thumbnails through the device's Image element therefore silently fails.
+// Workaround: at `divoom push` time, we fetch the upstream image, resize
+// it to the slot the old Image element used to occupy, draw the title /
+// drink name / ingredient list as raster text, JPEG-encode the result,
+// and adb-push it as the scene's bg JPG. The scene definition then drops
+// the Image and Text elements entirely and shows only the bg.
+//
+// This is specifically these two scenes. No abstraction — see CLAUDE.md.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/jpeg"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
+
+	xdraw "golang.org/x/image/draw"
+
+	"github.com/dragonpaw/divoom/internal/render"
+)
+
+const (
+	// httpFetchTimeout caps both API calls and image downloads. Pushes
+	// run from a USB-attached host so an extra few seconds is fine, but
+	// we don't want a hanging endpoint to block the entire push step.
+	httpFetchTimeout = 30 * time.Second
+
+	// JPEG quality for the composited bgs. Matches render.encodeImage's 95.
+	bakedJPEGQuality = 92
+)
+
+// bakeNASAandCocktailBackgrounds is called from runPush after
+// pushSceneBackgrounds. Each composite is best-effort — on API or
+// network failure we log a warning and leave the plain scene bg in
+// place from the previous step. Errors do not abort the push.
+func bakeNASAandCocktailBackgrounds(ctx context.Context) error {
+	if err := bakeNASABackground(ctx); err != nil {
+		slog.Warn("nasa bg compositing failed; leaving plain scene bg", "err", err)
+	}
+	if err := bakeCocktailBackground(ctx); err != nil {
+		slog.Warn("cocktail bg compositing failed; leaving plain scene bg", "err", err)
+	}
+	return nil
+}
+
+// --- NASA APOD ----------------------------------------------------------
+
+const (
+	nasaAPIBase = "https://api.nasa.gov/planetary/apod"
+
+	// Image slot inside the bg — same rectangle the old Image DispElement
+	// occupied (StartX 20, StartY 560, W 760, H 540).
+	nasaImageX = 20
+	nasaImageY = 560
+	nasaImageW = 760
+	nasaImageH = 540
+
+	// Title slot — same rectangle the old Text DispElement occupied
+	// (StartX 80, StartY 1120, W 640, H 80). FontSize 36, fontProse / cFg.
+	nasaTitleX  = 80
+	nasaTitleY  = 1120
+	nasaTitleW  = 640
+	nasaTitleH  = 80
+	nasaTitleFS = 36
+)
+
+type nasaAPODResponse struct {
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	HDURL     string `json:"hdurl"`
+	Date      string `json:"date"`
+	MediaType string `json:"media_type"`
+}
+
+func bakeNASABackground(ctx context.Context) error {
+	apodKey := os.Getenv("NASA_API_KEY")
+	if apodKey == "" {
+		apodKey = "DEMO_KEY"
+	}
+
+	body, err := fetchAPOD(ctx, apodKey, "")
+	if err != nil {
+		return fmt.Errorf("fetch apod: %w", err)
+	}
+	// Video-day fallback: try yesterday once, then give up and use the
+	// plain scene bg (no image baked in).
+	if body.MediaType != "image" {
+		yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+		slog.Info("apod is non-image today; retrying yesterday", "yesterday", yesterday)
+		body, err = fetchAPOD(ctx, apodKey, yesterday)
+		if err != nil {
+			return fmt.Errorf("fetch apod yesterday: %w", err)
+		}
+		if body.MediaType != "image" {
+			return fmt.Errorf("apod %q is not an image after retry", body.MediaType)
+		}
+	}
+
+	imgURL := body.HDURL
+	if imgURL == "" {
+		imgURL = body.URL
+	}
+	if imgURL == "" {
+		return fmt.Errorf("apod response has no image url")
+	}
+
+	photo, err := fetchImage(ctx, imgURL)
+	if err != nil {
+		return fmt.Errorf("download apod image: %w", err)
+	}
+
+	// Start from the plain scene bg (with title row + saturn glyph already
+	// drawn into it by render.SceneBackground).
+	bgBytes, err := render.SceneBackground(render.SceneNASA, render.FormatJPEG, time.Now())
+	if err != nil {
+		return fmt.Errorf("render scene bg: %w", err)
+	}
+	canvas, err := jpegToRGBA(bgBytes)
+	if err != nil {
+		return fmt.Errorf("decode scene bg: %w", err)
+	}
+
+	// Resize + centre-crop the photo into the image slot.
+	pasteImage(canvas, photo, image.Rect(nasaImageX, nasaImageY, nasaImageX+nasaImageW, nasaImageY+nasaImageH))
+
+	// Draw the APOD title underneath the photo.
+	if err := drawCenteredText(canvas, body.Title,
+		image.Rect(nasaTitleX, nasaTitleY, nasaTitleX+nasaTitleW, nasaTitleY+nasaTitleH),
+		nasaTitleFS, gruvFg); err != nil {
+		return fmt.Errorf("draw title: %w", err)
+	}
+
+	out, err := encodeJPEG(canvas)
+	if err != nil {
+		return fmt.Errorf("encode jpeg: %w", err)
+	}
+	if err := pushBytes(ctx, out, bgNASA); err != nil {
+		return fmt.Errorf("push: %w", err)
+	}
+	slog.Info("nasa apod bg composited and pushed", "title", body.Title, "date", body.Date)
+	return nil
+}
+
+// fetchAPOD calls the NASA APOD endpoint. When date is "" the API
+// returns today's entry; otherwise the YYYY-MM-DD entry.
+func fetchAPOD(ctx context.Context, apiKey, date string) (*nasaAPODResponse, error) {
+	url := nasaAPIBase + "?api_key=" + apiKey
+	if date != "" {
+		url += "&date=" + date
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: httpFetchTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("http %d", resp.StatusCode)
+	}
+	var body nasaAPODResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	return &body, nil
+}
+
+// --- Cocktail -----------------------------------------------------------
+
+const (
+	cocktailAPIURL = "https://www.thecocktaildb.com/api/json/v1/1/random.php"
+
+	cocktailImageX = 20
+	cocktailImageY = 540
+	cocktailImageW = 760
+	cocktailImageH = 480
+
+	cocktailNameX  = 80
+	cocktailNameY  = 1040
+	cocktailNameW  = 640
+	cocktailNameH  = 100
+	cocktailNameFS = 60
+
+	cocktailIngX  = 80
+	cocktailIngY  = 1160
+	cocktailIngW  = 640
+	cocktailIngH  = 70
+	cocktailIngFS = 28
+
+	ingredientMaxCount = 5
+	ingredientMaxLen   = 80
+)
+
+type cocktailResponse struct {
+	Drinks []map[string]any `json:"drinks"`
+}
+
+func bakeCocktailBackground(ctx context.Context) error {
+	name, thumb, ingredients, err := fetchCocktail(ctx)
+	if err != nil {
+		return fmt.Errorf("fetch cocktail: %w", err)
+	}
+
+	photo, err := fetchImage(ctx, thumb)
+	if err != nil {
+		return fmt.Errorf("download thumb: %w", err)
+	}
+
+	bgBytes, err := render.SceneBackground(render.SceneCocktail, render.FormatJPEG, time.Now())
+	if err != nil {
+		return fmt.Errorf("render scene bg: %w", err)
+	}
+	canvas, err := jpegToRGBA(bgBytes)
+	if err != nil {
+		return fmt.Errorf("decode scene bg: %w", err)
+	}
+
+	pasteImage(canvas, photo, image.Rect(cocktailImageX, cocktailImageY,
+		cocktailImageX+cocktailImageW, cocktailImageY+cocktailImageH))
+
+	if err := drawCenteredText(canvas, name,
+		image.Rect(cocktailNameX, cocktailNameY, cocktailNameX+cocktailNameW, cocktailNameY+cocktailNameH),
+		cocktailNameFS, gruvFg); err != nil {
+		return fmt.Errorf("draw name: %w", err)
+	}
+	if err := drawCenteredText(canvas, ingredients,
+		image.Rect(cocktailIngX, cocktailIngY, cocktailIngX+cocktailIngW, cocktailIngY+cocktailIngH),
+		cocktailIngFS, gruvFgDark); err != nil {
+		return fmt.Errorf("draw ingredients: %w", err)
+	}
+
+	out, err := encodeJPEG(canvas)
+	if err != nil {
+		return fmt.Errorf("encode jpeg: %w", err)
+	}
+	if err := pushBytes(ctx, out, bgCocktail); err != nil {
+		return fmt.Errorf("push: %w", err)
+	}
+	slog.Info("cocktail bg composited and pushed", "name", name)
+	return nil
+}
+
+func fetchCocktail(ctx context.Context) (name, thumb, ingredients string, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cocktailAPIURL, nil)
+	if err != nil {
+		return "", "", "", err
+	}
+	req.Header.Set("User-Agent", "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)")
+	client := &http.Client{Timeout: httpFetchTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", "", "", fmt.Errorf("http %d", resp.StatusCode)
+	}
+	var body cocktailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", "", "", err
+	}
+	if len(body.Drinks) == 0 {
+		return "", "", "", fmt.Errorf("no drinks in response")
+	}
+	d := body.Drinks[0]
+	name = strSafe(d["strDrink"])
+	thumb = strSafe(d["strDrinkThumb"])
+
+	// Pull the 15 ingredient slots in order; the first empty one terminates.
+	var picked []string
+	for i := 1; i <= 15; i++ {
+		s := strings.TrimSpace(strSafe(d[fmt.Sprintf("strIngredient%d", i)]))
+		if s == "" {
+			break
+		}
+		picked = append(picked, s)
+		if len(picked) >= ingredientMaxCount {
+			break
+		}
+		if len(strings.Join(picked, ", ")) >= ingredientMaxLen {
+			break
+		}
+	}
+	ingredients = strings.Join(picked, ", ")
+
+	if name == "" || thumb == "" {
+		return "", "", "", fmt.Errorf("missing fields: name=%q thumb=%q", name, thumb)
+	}
+	return name, thumb, ingredients, nil
+}
+
+func strSafe(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// --- shared helpers -----------------------------------------------------
+
+// fetchImage downloads url and decodes it as PNG or JPEG.
+func fetchImage(ctx context.Context, url string) (image.Image, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: httpFetchTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("http %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return img, nil
+}
+
+// pasteImage resizes src to fit dst preserving aspect ratio (centre-crop
+// when aspects differ) and draws it onto canvas at dst.
+func pasteImage(canvas *image.RGBA, src image.Image, dst image.Rectangle) {
+	sb := src.Bounds()
+	srcAspect := float64(sb.Dx()) / float64(sb.Dy())
+	dstAspect := float64(dst.Dx()) / float64(dst.Dy())
+
+	// Pick the source crop rect (in src coords) that matches dst's aspect.
+	var crop image.Rectangle
+	if srcAspect > dstAspect {
+		// Source wider than dst — crop sides.
+		newW := int(float64(sb.Dy()) * dstAspect)
+		off := (sb.Dx() - newW) / 2
+		crop = image.Rect(sb.Min.X+off, sb.Min.Y, sb.Min.X+off+newW, sb.Max.Y)
+	} else {
+		// Source taller than dst — crop top/bottom.
+		newH := int(float64(sb.Dx()) / dstAspect)
+		off := (sb.Dy() - newH) / 2
+		crop = image.Rect(sb.Min.X, sb.Min.Y+off, sb.Max.X, sb.Min.Y+off+newH)
+	}
+	xdraw.CatmullRom.Scale(canvas, dst, src, crop, xdraw.Over, nil)
+}
+
+func jpegToRGBA(b []byte) (*image.RGBA, error) {
+	img, err := jpeg.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	rgba := image.NewRGBA(img.Bounds())
+	draw.Draw(rgba, rgba.Bounds(), img, image.Point{}, draw.Src)
+	return rgba, nil
+}
+
+func encodeJPEG(img image.Image) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: bakedJPEGQuality}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// Gruvbox text colours — match the originals in scenes.go (cFg, cFgDark).
+var (
+	gruvFg     = color.RGBA{0xeb, 0xdb, 0xb2, 0xff}
+	gruvFgDark = color.RGBA{0xa8, 0x99, 0x84, 0xff}
+)
+
+// fontFaceCache memoises one opentype.Face per (path, size) pair so we
+// don't reparse the TTF on every text call.
+var (
+	fontCache   = map[string]*opentype.Font{}
+	prosePath   = "fonts/RobotoCondensed-Regular.ttf"
+)
+
+func loadFont(path string) (*opentype.Font, error) {
+	if f, ok := fontCache[path]; ok {
+		return f, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	f, err := opentype.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	fontCache[path] = f
+	return f, nil
+}
+
+// drawCenteredText rasters s centred horizontally and vertically inside
+// rect at the device font-size px equivalent. We treat the DispElement's
+// FontSize as a px height for the face (the device is 800x1280; our
+// canvas is 1:1 with it).
+func drawCenteredText(canvas *image.RGBA, s string, rect image.Rectangle, sizePx int, col color.RGBA) error {
+	if s == "" {
+		return nil
+	}
+	f, err := loadFont(prosePath)
+	if err != nil {
+		return err
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size:    float64(sizePx),
+		DPI:     72,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		return err
+	}
+	defer face.Close()
+
+	// Truncate-with-ellipsis if the string is wider than rect.
+	maxW := fixed.I(rect.Dx())
+	width := font.MeasureString(face, s)
+	if width > maxW {
+		s = ellipsize(s, face, maxW)
+		width = font.MeasureString(face, s)
+	}
+
+	metrics := face.Metrics()
+	textH := metrics.Ascent + metrics.Descent
+	// Baseline = top of rect + (rect height - text height)/2 + ascent.
+	baseline := fixed.I(rect.Min.Y) + (fixed.I(rect.Dy())-textH)/2 + metrics.Ascent
+	dotX := fixed.I(rect.Min.X) + (maxW-width)/2
+
+	d := &font.Drawer{
+		Dst:  canvas,
+		Src:  image.NewUniform(col),
+		Face: face,
+		Dot:  fixed.Point26_6{X: dotX, Y: baseline},
+	}
+	d.DrawString(s)
+	return nil
+}
+
+// ellipsize trims s with a trailing "…" until it fits in maxW.
+func ellipsize(s string, face font.Face, maxW fixed.Int26_6) string {
+	const ell = "…"
+	if font.MeasureString(face, s) <= maxW {
+		return s
+	}
+	// Binary-search-ish trim, in characters.
+	runes := []rune(s)
+	for len(runes) > 1 {
+		runes = runes[:len(runes)-1]
+		candidate := strings.TrimRight(string(runes), " ,") + ell
+		if font.MeasureString(face, candidate) <= maxW {
+			return candidate
+		}
+	}
+	return ell
+}

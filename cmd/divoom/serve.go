@@ -16,7 +16,6 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget/easter"
 	"github.com/dragonpaw/divoom/internal/widget/facts"
 	"github.com/dragonpaw/divoom/internal/widget/finance"
-	"github.com/dragonpaw/divoom/internal/widget/food"
 	githubw "github.com/dragonpaw/divoom/internal/widget/github"
 	"github.com/dragonpaw/divoom/internal/widget/news"
 	"github.com/dragonpaw/divoom/internal/widget/quotes"
@@ -101,8 +100,10 @@ func runServe(ctx context.Context) error {
 		"weather":    weatherWidget,
 		"zenquotes":  quotes.NewZenQuotes(),
 		"devil":      quotes.NewDevilsDictionary(),
-		"nasa":       sky.NewAPOD(),
-		"cocktail":   food.New(),
+		// nasa + cocktail scenes have no live widget — their bg JPGs
+		// are baked with the latest photo + text at `divoom push` time
+		// (see scene_baked.go). The cloud proxy whitelist that blocks
+		// Image DispElement URLs is the reason.
 		"onthisday":  wikipedia.NewOnThisDay(),
 		"iss":        sky.NewISS("37.9358", "-122.3477"),
 	}

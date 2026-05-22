@@ -6,59 +6,25 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// "NASA APOD" — Astronomy Picture of the Day. First scene to use
-// the device's Image DispList element type; the widget emits
-// "<url>|<title>|<date>" and the Image element's Url is wired in
-// at install time via the Mount.Geometry callback (Image elements
-// can't be patched via UpdateDisplayItems, but every scene
-// activation is a full EnterCustomMode, so this is fine). 6
-// elements total (3 always-on + 3 body) — unique among rotation
-// scenes.
-func nasaScene(widgets map[string]widget.Widget) *scene.Scene {
+// "NASA APOD" — Astronomy Picture of the Day.
+//
+// Originally rendered via an Image DispElement pointing at the APOD URL,
+// but Divoom's cloud proxy whitelists only `f.divoom-gz.com` for Image
+// element URLs (see docs/api.md and memory/feedback_netdata_cloud_proxy.md),
+// so the photo never reached the device. Workaround: at `divoom push`
+// time we fetch the APOD JSON, download the photo, composite it + the
+// title directly into the scene's bg JPG (see scene_baked.go), and adb-
+// push that. The scene definition is then bg-only — the photo and
+// title are pixels in the bg, not DispElements. sceneTitle stays as
+// the only DispElement because it's a static "NASA APOD" caption row
+// that the device-side renderer can handle on its own.
+func nasaScene(_ map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "nasa",
 		Weight: 20,
 		BgPath: bgNASA,
 		Elements: []frame.DispElement{
 			sceneTitle("NASA APOD"),
-			// Full-width image — URL set by the Mount.Geometry hook.
-			// Font/color fields are semantically meaningless for Image
-			// elements but every element in the docs' working example
-			// (docs/upstream/p374.json) carries them, and our previous
-			// payloads that omitted them rendered as background-only
-			// with no image. Likely the device parser drops elements
-			// with missing fields silently.
-			{
-				ID: idSceneSub1, Type: "Image",
-				StartX: 20, StartY: 560, Width: 760, Height: 540,
-				Align: 2,
-				FontSize: 16, FontID: fontProse,
-				FontColor: cFg, BgColor: cBgHard,
-			},
-			// Title underneath the image.
-			{
-				ID: idSceneSub2, Type: "Text",
-				StartX: 80, StartY: 1120, Width: 640, Height: 80,
-				Align: 2, FontSize: 36, FontID: fontProse,
-				FontColor: cFg, BgColor: cBgHard,
-			},
-		},
-		Widget: widgets["nasa"],
-		Mounts: []scene.Mount{
-			{
-				ID:     idSceneSub1,
-				Format: pipeAt(0),
-				// Wire the widget's URL output (segment 0) into the
-				// Image element's Url field. The element's
-				// TextMessage is set by the driver but ignored by
-				// the device for Image-type elements.
-				Geometry: func(text string, e frame.DispElement) frame.DispElement {
-					e.Url = text
-					e.ImgLocalFlag = 0
-					return e
-				},
-			},
-			{ID: idSceneSub2, Format: pipeAt(1)},
 		},
 	}
 }

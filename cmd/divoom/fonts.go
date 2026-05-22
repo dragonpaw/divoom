@@ -47,6 +47,13 @@ func runPush(ctx context.Context) error {
 	if err := pushSceneBackgrounds(ctx); err != nil {
 		return err
 	}
+	// Bake the NASA + cocktail bgs (fetch upstream image, composite into
+	// the scene bg, push). Best-effort: failures log and continue,
+	// leaving the plain scene bg from pushSceneBackgrounds in place.
+	// See scene_baked.go for the rationale (cloud-proxy whitelist).
+	if err := bakeNASAandCocktailBackgrounds(ctx); err != nil {
+		return err
+	}
 	return pushFonts(ctx)
 }
 
