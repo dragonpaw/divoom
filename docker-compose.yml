@@ -11,7 +11,6 @@ services:
       # Frame targeting. MAC pins discovery; IP skips cloud discovery entirely.
       DIVOOM_FRAME_MAC: ${DIVOOM_FRAME_MAC:-}
       DIVOOM_FRAME_IP: ${DIVOOM_FRAME_IP:-}
-      ADB_SERIAL: ${ADB_SERIAL:-}
       # API keys for the widgets that need them. NASA powers the APOD scene;
       # GITHUB_USER + GITHUB_TOKEN gate the github-activity scene.
       NASA_API_KEY: ${NASA_API_KEY:-}
