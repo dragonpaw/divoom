@@ -95,6 +95,15 @@ func runRender(args []string) error {
 		{name: "scene-iss", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneISS, render.FormatJPEG, now)
 		}},
+		{name: "scene-stoics", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneStoics, render.FormatJPEG, now)
+		}},
+		{name: "scene-twain", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneTwain, render.FormatJPEG, now)
+		}},
+		{name: "scene-fortune", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneFortune, render.FormatJPEG, now)
+		}},
 	}
 	// One preview per weather outlook so the icon set can be spot-checked
 	// without spinning up the daemon.
