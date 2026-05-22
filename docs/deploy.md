@@ -1,7 +1,7 @@
 # Deploying to Portainer
 
 The dashboard runs as a Docker container on the home NAS, managed by the
-Portainer instance at `http://10.0.2.201:9000`. The image lives in GHCR
+Portainer instance at `http://10.0.2.201:19900`. The image lives in GHCR
 (`ghcr.io/dragonpaw/divoom`, public). Deploys are manual: build locally,
 push to GHCR, then PUT the compose file at the Portainer stack API.
 

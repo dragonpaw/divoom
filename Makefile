@@ -8,7 +8,7 @@ VERSION     := $(shell git describe --tags --always --dirty)
 COMPOSE     := docker-compose.yml
 ENV_FILE    := .env
 
-PORTAINER_URL        ?= http://10.0.2.201:9000
+PORTAINER_URL        ?= http://10.0.2.201:19900
 PORTAINER_ENDPOINT   ?= 1
 PORTAINER_API_KEY    ?= $(or $(PORTAINER_TOKEN),$(shell cat $(HOME)/.config/divoom/portainer-key 2>/dev/null))
 PORTAINER_STACK_ID   ?= $(shell cat $(HOME)/.config/divoom/portainer-stack-id 2>/dev/null)
