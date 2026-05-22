@@ -15,7 +15,7 @@ import (
 // our location. Output is pipe-separated for the "iss" scene's three Text
 // elements:
 //
-//	"<lat>°, <lon>°|next pass in 1h 23m|over <region>"
+//	"<lat>°, <lon>°|next pass in 1h 23m|over <location>"
 //
 // The position is sourced from wheretheiss.at (HTTPS, no-auth, stable);
 // the next-pass segment is sourced from open-notify.org's iss-pass
@@ -23,9 +23,7 @@ import (
 // returns an empty payload, the second segment is left blank — the
 // scene's mounts mark it AllowEmpty so the row simply doesn't render.
 //
-// "over <region>" is computed locally from a tiny lat/lon band table —
-// continent vs ocean by coarse rectangle — so the widget stays
-// dependency-free.
+// "over <location>" is computed locally — see locationFor in iss_geo.go.
 type ISS struct {
 	client  *http.Client
 	lat     string
@@ -71,11 +69,11 @@ func (s *ISS) Fetch(ctx context.Context) (string, error) {
 	if when, ok := s.fetchNextPass(ctx); ok {
 		passSeg = formatNextPass(when, time.Now())
 	}
-	region := regionFor(pos.Latitude, pos.Longitude)
+	loc := locationFor(pos.Latitude, pos.Longitude)
 	return fmt.Sprintf("%s|%s|%s",
 		formatCoords(pos.Latitude, pos.Longitude),
 		passSeg,
-		region,
+		loc,
 	), nil
 }
 
@@ -149,47 +147,3 @@ func formatNextPass(when, now time.Time) string {
 	return fmt.Sprintf("next pass in %dm", m)
 }
 
-// regionFor returns a coarse "over <region>" hint from lat/lon. Bands
-// are picked to read sensibly at a glance, not to be cartographically
-// precise — the goal is "Pacific" vs "Atlantic" vs "Africa", not a
-// country lookup. Order matters: continents are checked before the
-// oceans they border so e.g. the Indonesian archipelago reads as
-// "Asia", not "Indian Ocean".
-func regionFor(lat, lon float64) string {
-	// Polar caps first — small but unambiguous.
-	switch {
-	case lat >= 66:
-		return "over Arctic"
-	case lat <= -60:
-		return "over Antarctica"
-	}
-	// Continent rectangles. Each is (latMin, latMax, lonMin, lonMax).
-	continents := []struct {
-		name                       string
-		latMin, latMax, lonMin, lonMax float64
-	}{
-		{"Europe", 36, 71, -10, 40},
-		{"Africa", -35, 36, -18, 51},
-		{"Middle East", 12, 42, 35, 63},
-		{"Asia", -10, 71, 63, 150},
-		{"Australia", -44, -10, 110, 155},
-		{"North America", 15, 71, -168, -52},
-		{"Central America", 7, 23, -106, -77},
-		{"South America", -56, 13, -82, -34},
-	}
-	for _, c := range continents {
-		if lat >= c.latMin && lat <= c.latMax &&
-			lon >= c.lonMin && lon <= c.lonMax {
-			return "over " + c.name
-		}
-	}
-	// Ocean fallback by longitude band.
-	switch {
-	case lon >= -70 && lon <= 20:
-		return "over Atlantic"
-	case lon > 20 && lon <= 110:
-		return "over Indian Ocean"
-	default:
-		return "over Pacific"
-	}
-}
