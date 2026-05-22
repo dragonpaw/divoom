@@ -3,6 +3,7 @@
 # key, stack ID).
 
 IMAGE       := ghcr.io/dragonpaw/divoom
+GHCR_USER   ?= dragonpaw
 VERSION     := $(shell git describe --tags --always --dirty)
 COMPOSE     := docker-compose.yml
 ENV_FILE    := .env
@@ -12,14 +13,23 @@ PORTAINER_ENDPOINT   ?= 1
 PORTAINER_API_KEY    ?= $(or $(PORTAINER_TOKEN),$(shell cat $(HOME)/.config/divoom/portainer-key 2>/dev/null))
 PORTAINER_STACK_ID   ?= $(shell cat $(HOME)/.config/divoom/portainer-stack-id 2>/dev/null)
 
-.PHONY: all build push deploy
+.PHONY: all build login push deploy
 
 all: build push deploy
 
 build:
 	podman build -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
 
-push:
+# Auto-login if GHCR_PAT is in the env; otherwise assume `podman login ghcr.io`
+# was done previously (or that podman has a cached credential).
+login:
+	@if [ -n "$(GHCR_PAT)" ]; then \
+	    echo "$(GHCR_PAT)" | podman login ghcr.io -u $(GHCR_USER) --password-stdin; \
+	else \
+	    echo "GHCR_PAT not set — relying on existing podman login session"; \
+	fi
+
+push: login
 	podman push $(IMAGE):$(VERSION)
 	podman push $(IMAGE):latest
 
