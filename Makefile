@@ -12,7 +12,7 @@ PORTAINER_ENDPOINT   ?= 1
 PORTAINER_API_KEY    ?= $(or $(PORTAINER_TOKEN),$(shell cat $(HOME)/.config/divoom/portainer-key 2>/dev/null))
 STACK_NAME           ?= divoom
 
-.PHONY: all build login push deploy stacks
+.PHONY: all build login push deploy stacks test vet lint fmt run probe render-out
 
 all: build push deploy
 
@@ -85,3 +85,28 @@ deploy: push
 	echo "portainer status: $$status"; \
 	cat /tmp/portainer-deploy.out; echo; \
 	case "$$status" in 2*) exit 0 ;; *) exit 1 ;; esac
+
+test:
+	go test ./...
+
+vet:
+	go vet ./...
+
+# Optional — only if golangci-lint is on PATH.
+lint:
+	@command -v golangci-lint >/dev/null && golangci-lint run \
+	    || echo "golangci-lint not installed; skipping"
+
+fmt:
+	gofmt -w .
+
+# Run the daemon locally against the configured frame.
+run:
+	go run ./cmd/divoom serve
+
+probe:
+	go run ./cmd/divoom probe
+
+# Render every scene background JPG to ./dist/scenes/ for inspection.
+render-out:
+	go run ./cmd/divoom render
