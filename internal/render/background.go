@@ -290,34 +290,13 @@ func drawSceneGlyph(img *image.RGBA, scene Scene) {
 			&image.Uniform{c}, image.Point{}, draw.Src)
 
 	case SceneBabylon5:
-		// Side-view silhouette of the Babylon 5 station: a long thin
-		// horizontal spine with a wider central rotating section, a
-		// blunt aft cap on the left, and a forward command sphere on
-		// the right. Built entirely from rectangles + one disc.
-		const (
-			spineHalfW = 180 // half-length of the central spine
-			spineH     = 14  // spine thickness
-			rotW       = 90  // length of the rotating mid-section
-			rotH       = 70  // height of the rotating mid-section
-			aftW       = 32  // aft (left) cap length
-			aftH       = 44  // aft cap height
-			fwdR       = 22  // forward command sphere radius
-			fwdGap     = 14  // gap between spine end and command sphere
-		)
-		// Spine — runs horizontally through cy.
-		draw.Draw(img,
-			image.Rect(cx-spineHalfW, cy-spineH/2, cx+spineHalfW, cy+spineH/2),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Rotating mid-section, centred on the spine.
-		draw.Draw(img,
-			image.Rect(cx-rotW/2, cy-rotH/2, cx+rotW/2, cy+rotH/2),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Aft cap on the left end of the spine.
-		draw.Draw(img,
-			image.Rect(cx-spineHalfW-aftW, cy-aftH/2, cx-spineHalfW, cy+aftH/2),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Forward command sphere off the right end of the spine.
-		fillCircle(img, cx+spineHalfW+fwdGap+fwdR, cy, fwdR, c)
+		// "Babylon 5" 1994 title-card wordmark — large numeral 5 with
+		// BABYLON across it. Rasterised from a PD-shape SVG on Wikimedia
+		// Commons (see assets.go) and overpainted in c via the same
+		// mask-paint pattern as the Starfleet delta. Replaces the older
+		// hand-rasterised side-view station silhouette, which was
+		// readable to fans but very simplified.
+		drawBabylon5(img, cx, cy, c)
 
 	case SceneDiscworld:
 		// Discworld cosmology stack: the flat Disc on top, four world
@@ -739,6 +718,28 @@ func drawGit(img *image.RGBA, cx, cy int, c color.RGBA) {
 		gitMask = m
 	})
 	paintMask(img, gitMask, cx, cy, c)
+}
+
+// babylon5Mask is the decoded "Babylon 5" wordmark silhouette PNG;
+// loaded once on first use. Same alpha-threshold treatment as the
+// starfleet delta.
+var (
+	babylon5Once sync.Once
+	babylon5Mask image.Image
+)
+
+// drawBabylon5 paints the Babylon 5 title-card wordmark centred on
+// (cx, cy) in colour c. Mirror of drawQuestion — embedded PNG decoded
+// once, then handed to paintMask.
+func drawBabylon5(img *image.RGBA, cx, cy int, c color.RGBA) {
+	babylon5Once.Do(func() {
+		m, err := png.Decode(bytes.NewReader(babylon5PNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded babylon5: %w", err))
+		}
+		babylon5Mask = m
+	})
+	paintMask(img, babylon5Mask, cx, cy, c)
 }
 
 // weatherMasks holds the decoded weather-icon silhouettes, keyed by

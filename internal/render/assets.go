@@ -104,6 +104,29 @@
 //	  https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/26a0.svg
 //	rsvg-convert -w 200 -h 200 -o internal/render/assets/hazard.png /tmp/26a0.svg
 //
+// babylon5.png is the "Babylon 5" 1994 title-card wordmark (stylised
+// BABYLON with a large numeral 5), rasterised from File:Babylon 5 1994
+// logo.svg on Wikimedia Commons:
+//
+//	https://commons.wikimedia.org/wiki/File:Babylon_5_1994_logo.svg
+//	https://upload.wikimedia.org/wikipedia/commons/e/e0/Babylon_5_1994_logo.svg
+//
+// The source SVG is in the public domain on copyright grounds (PD-shape /
+// PD-textlogo: simple geometric shapes and text, below the threshold of
+// originality). Babylon 5 itself remains a trademark of Warner Bros.
+// Entertainment Inc.; this PNG is used here only as a personal-display
+// glyph in the wall-clock background for the project author. Not
+// redistribution-safe. If the repo ever goes public, this glyph may need
+// to be replaced or removed. Every opaque pixel is overpainted in
+// GruvBgDarker at render time.
+//
+// To regenerate the PNG from the source SVG:
+//
+//	curl -o /tmp/b5-1994.svg \
+//	  https://upload.wikimedia.org/wikipedia/commons/e/e0/Babylon_5_1994_logo.svg
+//	rsvg-convert -w 200 -h 200 -o internal/render/assets/babylon5.png \
+//	  /tmp/b5-1994.svg
+//
 // To regenerate (one outlook shown):
 //
 //	curl -o /tmp/wi-day-sunny.svg \
@@ -176,3 +199,6 @@ var questionPNG []byte
 
 //go:embed assets/git.png
 var gitPNG []byte
+
+//go:embed assets/babylon5.png
+var babylon5PNG []byte
