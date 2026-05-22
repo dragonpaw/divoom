@@ -9,9 +9,11 @@ import (
 	"time"
 )
 
-// DayOfYear renders "you're P.P% of the way through YYYY" — a friendly
-// year-progress reminder. The "calendar" scene splits this into a big
-// percentage and a smaller explanatory line.
+// DayOfYear renders the year-progress as three pipe-separated segments —
+// a big percentage, a year label, and a day count — that the dayofyear
+// scene splits across separate Text elements.
+//
+// Output:  "39%|Year 2026|Day 142 of 366"
 type DayOfYear struct{}
 
 func NewDayOfYear() *DayOfYear { return &DayOfYear{} }
@@ -26,9 +28,7 @@ func (d *DayOfYear) Fetch(ctx context.Context) (string, error) {
 		yearDays = 366
 	}
 	pct := float64(day-1) / float64(yearDays) * 100
-	// HEADER|BODY: header is a label, body is a friendly sentence with
-	// the percentage embedded.
-	return fmt.Sprintf("day of year|You're %.1f%% done with %d!", pct, now.Year()), nil
+	return fmt.Sprintf("%.0f%%|Year %d|Day %d of %d", pct, now.Year(), day, yearDays), nil
 }
 
 func isLeap(y int) bool {

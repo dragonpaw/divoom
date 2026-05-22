@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,16 +23,10 @@ type Source struct {
 	Weight int
 }
 
-// Rotator picks a Source by weighted random sample on each Fetch. If
-// MaxLen > 0, the picked source's text is truncated at the last word
-// boundary that fits within MaxLen bytes, with an ellipsis appended —
-// the Times Frame's Text rendering caps somewhere around two line-heights
-// regardless of declared Height, so this is how we keep content from
-// clipping mid-character on long facts.
+// Rotator picks a Source by weighted random sample on each Fetch.
 type Rotator struct {
 	name    string
 	sources []Source
-	maxLen  int
 
 	mu  sync.Mutex
 	rng *rand.Rand
@@ -47,13 +40,6 @@ func New(name string, sources []Source) *Rotator {
 	}
 }
 
-// WithMaxLen returns r after setting its truncation budget. <=0 disables
-// truncation (the default).
-func (r *Rotator) WithMaxLen(n int) *Rotator {
-	r.maxLen = n
-	return r
-}
-
 func (r *Rotator) Name() string { return r.name }
 
 func (r *Rotator) Fetch(ctx context.Context) (string, error) {
@@ -65,23 +51,7 @@ func (r *Rotator) Fetch(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", chosen.Name(), err)
 	}
-	if r.maxLen > 0 && len(text) > r.maxLen {
-		text = truncateAtWord(text, r.maxLen)
-	}
 	return text, nil
-}
-
-// truncateAtWord trims s to the last word boundary that fits within
-// maxLen bytes, appending "…" so the truncation is visible.
-func truncateAtWord(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	cut := s[:maxLen]
-	if i := strings.LastIndexByte(cut, ' '); i > 0 {
-		cut = cut[:i]
-	}
-	return cut + "…"
 }
 
 // pick selects one source via weighted random sample. Locked because rng

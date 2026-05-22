@@ -60,8 +60,7 @@ SUBCOMMANDS
   render         Render every scene background into ./dist/scenes/*.jpg.
                    Used by CI to publish to the public assets repo.
   serve          Run the dashboard daemon: install layout, poll widgets,
-                   patch Text elements via UpdateDisplayItems. Reads
-                   DIVOOM_LAT and DIVOOM_LON for weather.
+                   rotate scenes.
   help           Show this message.
 
 ENVIRONMENT

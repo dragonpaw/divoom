@@ -1,7 +1,10 @@
 package main
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dragonpaw/divoom/internal/frame"
@@ -9,35 +12,98 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// Element IDs. Always-on top reserves 1-2; scene primaries start at 10.
+// Element IDs. Always-on top reserves 1-3; scene primaries start at 10.
 // Each scene's layout is its own install, so re-using IDs across scenes is
 // fine; we keep the IDs distinct only within a single scene.
 const (
-	idTime = 1
-	idDate = 2
+	idDay  = 1
+	idTime = 2
+	idDate = 3
 
-	idSceneMain = 10
-	idSceneSub1 = 11
-	idSceneSub2 = 12
-	idSceneSub3 = 13
-	idSceneSub4 = 14
+	idSceneTitle = 9
+	idSceneMain  = 10
+	idSceneSub1  = 11
+	idSceneSub2  = 12
+	idSceneSub3  = 13
+	idSceneSub4  = 14
+	idSceneSub5  = 15
 )
 
-// Font IDs on the device. Both custom-pushed via adb (see docs/api.md →
+// Font IDs on the device. All custom-pushed via adb (see docs/api.md →
 // "Fonts on disk"). Iosevka for digits/symbols, Roboto Condensed for prose.
 const (
-	fontMono  = 7 // Iosevka — numbers, ticker symbols, percentages
-	fontProse = 9 // Roboto Condensed — labels, prose, condition words
+	fontMono       = 7  // Iosevka — numbers, ticker symbols, percentages
+	fontProse      = 9  // Roboto Condensed — labels, prose, condition words
+	fontProseLight = 11 // Roboto Condensed Light — secondary prose, fine print
 )
 
 // On-device per-scene background paths. We adb-push one JPG per scene so
 // each can have its own glyph in the bottom area.
 const (
-	bgNow     = "/userdata/wallclock_bg_now.jpg"
-	bgMarkets = "/userdata/wallclock_bg_markets.jpg"
-	bgSky     = "/userdata/wallclock_bg_sky.jpg"
-	bgAmbient = "/userdata/wallclock_bg_ambient.jpg"
+	bgMarkets    = "/userdata/wallclock_bg_markets.jpg"
+	bgSky        = "/userdata/wallclock_bg_sky.jpg"
+	bgHN         = "/userdata/wallclock_bg_hn.jpg"
+	bgDevil      = "/userdata/wallclock_bg_devil.jpg"
+	bgDayOfYear  = "/userdata/wallclock_bg_dayofyear.jpg"
+	bgEaster     = "/userdata/wallclock_bg_easter.jpg"
+	bgBabylon5   = "/userdata/wallclock_bg_babylon5.jpg"
+	bgStarTrek   = "/userdata/wallclock_bg_startrek.jpg"
+	bgDiscworld  = "/userdata/wallclock_bg_discworld.jpg"
+	bgJargon     = "/userdata/wallclock_bg_jargon.jpg"
+	bgCatFacts   = "/userdata/wallclock_bg_catfacts.jpg"
+	bgDidYouKnow = "/userdata/wallclock_bg_didyouknow.jpg"
+	bgSunrise    = "/userdata/wallclock_bg_sunrise.jpg"
+	bgZenQuotes  = "/userdata/wallclock_bg_zenquotes.jpg"
+	bgNASA       = "/userdata/wallclock_bg_nasa.jpg"
+	bgCocktail   = "/userdata/wallclock_bg_cocktail.jpg"
+	bgOnThisDay  = "/userdata/wallclock_bg_onthisday.jpg"
+	bgISS        = "/userdata/wallclock_bg_iss.jpg"
+
+	// One bg per weather outlook so the icon in the bottom-right corner
+	// matches the current condition. Selected at activation time via
+	// Scene.BgPathFor; all eight are pre-pushed at startup.
+	bgWeatherClear    = "/userdata/wallclock_bg_weather_clear.jpg"
+	bgWeatherCloudy   = "/userdata/wallclock_bg_weather_cloudy.jpg"
+	bgWeatherOvercast = "/userdata/wallclock_bg_weather_overcast.jpg"
+	bgWeatherRain     = "/userdata/wallclock_bg_weather_rain.jpg"
+	bgWeatherDrizzle  = "/userdata/wallclock_bg_weather_drizzle.jpg"
+	bgWeatherSnow     = "/userdata/wallclock_bg_weather_snow.jpg"
+	bgWeatherFog      = "/userdata/wallclock_bg_weather_fog.jpg"
+	bgWeatherThunder  = "/userdata/wallclock_bg_weather_thunder.jpg"
+	bgWeatherSmoke    = "/userdata/wallclock_bg_weather_smoke.jpg"
+	bgWeatherHazard   = "/userdata/wallclock_bg_weather_hazard.jpg"
 )
+
+// weatherOutlooks lists every outlook bucket the weather widget can emit,
+// in the same order used for log output / preview rendering. Each entry's
+// bg path matches one of the bgWeather* constants above.
+var weatherOutlooks = []struct {
+	Outlook string
+	BgPath  string
+}{
+	{"clear", bgWeatherClear},
+	{"cloudy", bgWeatherCloudy},
+	{"overcast", bgWeatherOvercast},
+	{"rain", bgWeatherRain},
+	{"drizzle", bgWeatherDrizzle},
+	{"snow", bgWeatherSnow},
+	{"fog", bgWeatherFog},
+	{"thunder", bgWeatherThunder},
+	{"smoke", bgWeatherSmoke},
+	{"hazard", bgWeatherHazard},
+}
+
+// weatherBgFor maps an outlook string to its on-device bg path, used by
+// the weather scene's BgPathFor callback. Unknown outlooks (e.g. an empty
+// cache before first fetch) fall back to the cloudy bg.
+func weatherBgFor(outlook string) string {
+	for _, o := range weatherOutlooks {
+		if o.Outlook == outlook {
+			return o.BgPath
+		}
+	}
+	return bgWeatherCloudy
+}
 
 // Gruvbox semantic colors. Reds and greens signal direction (down/up);
 // yellow / blue / aqua signal weather conditions; fg / fg-dark are quiet.
@@ -55,21 +121,54 @@ const (
 )
 
 // Vertical layout (800x1280 portrait):
-//   y=120-340   Time (huge, fg-tan, always on)
-//   y=370-430   Date (built-in, fg-dark, always on)
+//   y=20-100    Day of week (Text, color picked from weekday)
+//   y=120-340   Time (huge, color picked from AM vs PM)
+//   y=370-430   Date (built-in, fg-dark)
 //   y=460-462   Hairline divider (rendered into bg)
 //   y=480-1240  Scene-specific content
 //   y=1268-1272 Year-progress bar (rendered into bg)
 
-func alwaysOn() []frame.DispElement {
+// dayColors picks a gruvbox accent per weekday, sweeping the palette
+// through the week so each day reads distinctly at a glance.
+var dayColors = map[time.Weekday]string{
+	time.Sunday:    cPurple,
+	time.Monday:    cRed,
+	time.Tuesday:   cOrange,
+	time.Wednesday: cYellow,
+	time.Thursday:  cGreen,
+	time.Friday:    cAqua,
+	time.Saturday:  cBlue,
+}
+
+// timeColor returns the AM/PM accent for the clock — cAqua mornings,
+// cOrange afternoons/evenings — so the clock reads warm or cool at a
+// glance.
+func timeColor(now time.Time) string {
+	if now.Hour() < 12 {
+		return cAqua
+	}
+	return cOrange
+}
+
+func alwaysOn(now time.Time) []frame.DispElement {
 	return []frame.DispElement{
+		{
+			ID: idDay, Type: "Text",
+			StartX: 50, StartY: 20, Width: 700, Height: 80,
+			Align:       2,
+			FontSize:    64,
+			FontID:      fontProse,
+			FontColor:   dayColors[now.Weekday()],
+			BgColor:     cBgHard,
+			TextMessage: now.Weekday().String(),
+		},
 		{
 			ID: idTime, Type: "Time",
 			StartX: 50, StartY: 120, Width: 700, Height: 220,
 			Align:     2,
 			FontSize:  180,
 			FontID:    fontMono,
-			FontColor: cFg,
+			FontColor: timeColor(now),
 			BgColor:   cBgHard,
 		},
 		{
@@ -84,44 +183,35 @@ func alwaysOn() []frame.DispElement {
 	}
 }
 
-func buildScenes(weather, qqq, moon, whimsy *widget.Runner) []scene.Scene {
-	return []scene.Scene{
-		// "Now" — weather. Temperature huge on top, condition word below,
-		// both colored by the current condition (yellow for clear, blue
-		// for rain, etc.). The widget returns "<temp>° <condition>"; the
-		// Format functions split it.
-		{
-			Name:     "now",
-			Duration: 60 * time.Second,
-			BgPath:   bgNow,
-			Elements: []frame.DispElement{
-				{
-					ID: idSceneMain, Type: "Text",
-					StartX: 20, StartY: 540, Width: 760, Height: 220,
-					Align: 2, FontSize: 180, FontID: fontMono,
-					FontColor: cFg, BgColor: cBgHard,
-				},
-				{
-					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 820, Width: 760, Height: 110,
-					Align: 2, FontSize: 70, FontID: fontProse,
-					FontColor: cFg, BgColor: cBgHard,
-				},
-			},
-			Mounts: []scene.Mount{
-				{ID: idSceneMain, Runner: weather, Format: weatherTemp},
-				{ID: idSceneSub1, Runner: weather, Format: weatherCondition},
-			},
-		},
+// sceneTitle returns the canonical scene-title element — small, dim,
+// Roboto Condensed Light, centred at y=480 with 10% margins. Every
+// scene should use this so the title row looks identical across the
+// rotation. Pass a short label like "did you know?" or "ISS overhead".
+func sceneTitle(text string) frame.DispElement {
+	return frame.DispElement{
+		ID: idSceneTitle, Type: "Text",
+		StartX: 80, StartY: 480, Width: 640, Height: 40,
+		Align: 2, FontSize: 26, FontID: fontProseLight,
+		FontColor: cFgDark, BgColor: cBgHard,
+		TextMessage: text,
+	}
+}
 
+// buildScenes returns the configured scene rotation. `widgets` maps a
+// scene's Name to the Widget that supplies its dynamic text; scenes
+// not present in the map render with a nil Widget (static content
+// only).
+func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
+	return []*scene.Scene{
 		// "Markets" — QQQ stack: symbol on top, then a (percent, label) pair
 		// for week and again for month. Percents take green/red by sign;
 		// labels stay in fg-dark so they read as captions.
 		{
 			Name:     "markets",
-			Duration: 30 * time.Second,
+			Weight:   20,
 			BgPath:   bgMarkets,
 			Elements: []frame.DispElement{
+				sceneTitle("markets"),
 				// QQQ symbol header
 				{
 					ID: idSceneMain, Type: "Text",
@@ -160,10 +250,11 @@ func buildScenes(weather, qqq, moon, whimsy *widget.Runner) []scene.Scene {
 					TextMessage: "month",
 				},
 			},
+			Widget: widgets["markets"],
 			Mounts: []scene.Mount{
-				{ID: idSceneMain, Runner: qqq, Format: qqqSymbol},
-				{ID: idSceneSub1, Runner: qqq, Format: qqqWeekPct},
-				{ID: idSceneSub3, Runner: qqq, Format: qqqMonthPct},
+				{ID: idSceneMain, Format: qqqSymbol},
+				{ID: idSceneSub1, Format: qqqWeekPct},
+				{ID: idSceneSub3, Format: qqqMonthPct},
 			},
 		},
 
@@ -171,9 +262,10 @@ func buildScenes(weather, qqq, moon, whimsy *widget.Runner) []scene.Scene {
 		// Both colored gruvbox blue (ambient/sky).
 		{
 			Name:     "sky",
-			Duration: 30 * time.Second,
+			Weight:   20,
 			BgPath:   bgSky,
 			Elements: []frame.DispElement{
+				sceneTitle("moon"),
 				{
 					ID: idSceneMain, Type: "Text",
 					StartX: 20, StartY: 620, Width: 760, Height: 150,
@@ -187,86 +279,516 @@ func buildScenes(weather, qqq, moon, whimsy *widget.Runner) []scene.Scene {
 					FontColor: cFgDark, BgColor: cBgHard,
 				},
 			},
+			Widget: widgets["sky"],
 			Mounts: []scene.Mount{
-				{ID: idSceneMain, Runner: moon, Format: moonPhaseName},
-				{ID: idSceneSub1, Runner: moon, Format: moonIllum},
+				{ID: idSceneMain, Format: moonPhaseName},
+				{ID: idSceneSub1, Format: moonIllum},
 			},
 		},
 
-		// "Ambient" — whimsy rotator. Each whimsy source emits HEADER|BODY;
-		// header renders small at the top, body renders larger below.
-		// Body height accommodates 3-4 wrapped lines at FontSize 34.
+		// "HN" — promoted out of the now-empty whimsy rotator into its own
+		// scene. Widget emits "Hacker News|<title> — <summary>"; the small
+		// dim header sits above the body, which carries the headline and
+		// summary together. The HN-flavoured "Y" glyph in the bottom-right
+		// corner labels the scene. 5 elements total (3 top + 2 body) —
+		// matches sky/weather/aqi; the driver's same-count rule blocks
+		// direct transitions between them, which is fine.
 		{
-			Name:     "ambient",
-			Duration: 30 * time.Second,
-			BgPath:   bgAmbient,
+			Name:   "hn",
+			Weight: 20,
+			BgPath: bgHN,
 			Elements: []frame.DispElement{
-				// Header label
-				{
-					ID: idSceneMain, Type: "Text",
-					StartX: 20, StartY: 510, Width: 760, Height: 60,
-					Align: 2, FontSize: 36, FontID: fontProse,
-					FontColor: cFgDark, BgColor: cBgHard,
-				},
-				// Body / fact
+				sceneTitle("Hacker News"),
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 20, StartY: 600, Width: 760, Height: 540,
+					StartX: 20, StartY: 540, Width: 760, Height: 580,
 					Align: 2, FontSize: 34, FontID: fontProse,
 					FontColor: cFg, BgColor: cBgHard,
 				},
 			},
+			Widget: widgets["hn"],
 			Mounts: []scene.Mount{
-				{ID: idSceneMain, Runner: whimsy, Format: pipeHead},
-				{ID: idSceneSub1, Runner: whimsy, Format: pipeTail},
+				{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBody},
 			},
 		},
-	}
-}
 
-// --- weather formatters ---
-//
-// The weather widget returns "<temp>° <condition>" (e.g. "63° clear").
-// We split it into two elements and color both by condition so the whole
-// scene reads as one piece of information.
+		// "DayOfYear" — pretty year-progress dial. The widget emits
+		// "39%|Year 2026|Day 142 of 366"; the bg has a thick orange
+		// progress bar baked in at y=940-1000. Four body elements (7
+		// total with the always-on top) keep the scene count unique
+		// so the cache-busting same-count-exclusion rule lets us
+		// transition cleanly into it.
+		{
+			Name:     "dayofyear",
+			Weight:   20,
+			BgPath:   bgDayOfYear,
+			Elements: []frame.DispElement{
+				sceneTitle("year progress"),
+				// Big percentage
+				{
+					ID: idSceneMain, Type: "Text",
+					StartX: 20, StartY: 540, Width: 760, Height: 200,
+					Align: 2, FontSize: 180, FontID: fontMono,
+					FontColor: cOrange, BgColor: cBgHard,
+				},
+				// "Year 2026" — below the progress bar at y=755-815
+				{
+					ID: idSceneSub1, Type: "Text",
+					StartX: 20, StartY: 850, Width: 760, Height: 70,
+					Align: 2, FontSize: 56, FontID: fontProse,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+				// "Day 142 of 366"
+				{
+					ID: idSceneSub2, Type: "Text",
+					StartX: 20, StartY: 940, Width: 760, Height: 60,
+					Align: 2, FontSize: 40, FontID: fontProse,
+					FontColor: cFgDark, BgColor: cBgHard,
+				},
+				// "year progress" caption under the body block
+				{
+					ID: idSceneSub3, Type: "Text",
+					StartX: 20, StartY: 1080, Width: 760, Height: 50,
+					Align: 2, FontSize: 28, FontID: fontProse,
+					FontColor: cFgDark, BgColor: cBgHard,
+					TextMessage: "year progress",
+				},
+			},
+			Widget: widgets["dayofyear"],
+			Mounts: []scene.Mount{
+				{ID: idSceneMain, Format: pipeAt(0)},
+				{ID: idSceneSub1, Format: pipeAt(1)},
+				{ID: idSceneSub2, Format: pipeAt(2)},
+			},
+		},
 
-func weatherTemp(s string) (text, color string) {
-	parts := strings.SplitN(s, " ", 2)
-	color = weatherColor(s)
-	if len(parts) == 0 || s == "" {
-		return s, color
-	}
-	return parts[0], color
-}
+		// "Babylon 5" — dedicated scene for the B5 quote source. See
+		// QuoteScene for the shared promoted-quote layout (source label,
+		// body, author, tagline).
+		QuoteScene(QuoteSceneOpts{
+			Name: "babylon5", Title: "Babylon 5", Weight: 20, BgPath: bgBabylon5,
+			Widget:       widgets["babylon5"],
+			Tagline:      "the last best hope for peace",
+			TaglineColor: cPurple,
+			HasAuthor:    true,
+		}),
 
-func weatherCondition(s string) (text, color string) {
-	parts := strings.SplitN(s, " ", 2)
-	color = weatherColor(s)
-	if len(parts) < 2 {
-		return "", color
-	}
-	return parts[1], color
-}
+		// "Star Trek" — Starfleet command gold tagline.
+		QuoteScene(QuoteSceneOpts{
+			Name: "startrek", Title: "Star Trek", Weight: 20, BgPath: bgStarTrek,
+			Widget:       widgets["startrek"],
+			Tagline:      "to boldly go where no one has gone before",
+			TaglineColor: cYellow,
+			HasAuthor:    true,
+		}),
 
-// weatherColor maps a weather widget string to a gruvbox accent. The
-// condition word is enough to bucket — we don't need the WMO code.
-func weatherColor(text string) string {
-	t := strings.ToLower(text)
-	switch {
-	case strings.Contains(t, "thunder"):
-		return cRed
-	case strings.Contains(t, "rain"), strings.Contains(t, "drizzle"):
-		return cBlue
-	case strings.Contains(t, "snow"):
-		return cFg
-	case strings.Contains(t, "fog"):
-		return cAqua
-	case strings.Contains(t, "overcast"), strings.Contains(t, "cloudy"):
-		return cFgDark
-	case strings.Contains(t, "clear"):
-		return cYellow
-	default:
-		return cFg
+		// "Discworld" — GNU Terry Pratchett.
+		QuoteScene(QuoteSceneOpts{
+			Name: "discworld", Title: "Discworld", Weight: 20, BgPath: bgDiscworld,
+			Widget:       widgets["discworld"],
+			Tagline:      "GNU Terry Pratchett",
+			TaglineColor: cOrange,
+			HasAuthor:    true,
+		}),
+
+		// "Jargon" — dedicated scene for the Jargon File source. Shares
+		// the dictionary layout (source label, big headword, POS,
+		// definition) with the Devil's Dictionary scene via
+		// DictionaryScene. No author block (Jargon entries are
+		// communal) and no tagline.
+		DictionaryScene(DictionarySceneOpts{
+			Name: "jargon", Title: "Jargon File", Weight: 20, BgPath: bgJargon,
+			Widget:        widgets["jargon"],
+			HeadwordColor: cYellow,
+		}),
+
+		// "ZenQuotes" — sky-blue, contemplative.
+		QuoteScene(QuoteSceneOpts{
+			Name: "zenquotes", Title: "zen", Weight: 20, BgPath: bgZenQuotes,
+			Widget:       widgets["zenquotes"],
+			Tagline:      "be here now",
+			TaglineColor: cBlue,
+			HasAuthor:    true,
+		}),
+
+		// "Devil's Dictionary" — Ambrose Bierce, 1906. Dictionary-shaped
+		// like the Jargon scene (headword + POS + definition), with an
+		// author block (Bierce baked in) and the period tagline below.
+		DictionaryScene(DictionarySceneOpts{
+			Name: "devil", Title: "Devil's Dictionary", Weight: 20, BgPath: bgDevil,
+			Widget:        widgets["devil"],
+			HeadwordColor: cRed,
+			HasAuthor:     true,
+			Tagline:       "Cynic's Word Book, 1906",
+			TaglineColor:  cRed,
+		}),
+
+		// "Cat facts" — promoted out of the whimsy rotator into its own
+		// scene so the cat silhouette glyph in the bottom-right corner
+		// gets to be the dominant visual signature. One body Text for
+		// the fact prose; the "cat fact" header from the widget's
+		// "cat fact|<body>" output is dropped — the glyph carries the
+		// label work. Element count 4 (3 top + 1 body) collides only
+		// with the rare easter scene; Driver.pick()'s same-count rule
+		// blocks direct easter↔catfacts transitions, which is fine.
+		{
+			Name:   "catfacts",
+			Weight: 20,
+			BgPath: bgCatFacts,
+			Elements: []frame.DispElement{
+				sceneTitle("cat fact"),
+				{
+					ID: idSceneSub1, Type: "Text",
+					StartX: 20, StartY: 540, Width: 760, Height: 560,
+					Align: 2, FontSize: 38, FontID: fontProse,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["catfacts"],
+			Mounts: []scene.Mount{
+				{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBody},
+			},
+		},
+
+		// "Did you know?" — promoted out of the whimsy rotator into its own
+		// scene so the bold question-mark glyph in the bottom-right corner
+		// gets to be the dominant visual signature. One body Text for the
+		// fact prose; the "did you know?" header from the widget's
+		// "did you know?|<body>" output is dropped — the glyph carries the
+		// label work. Element count 4 (3 top + 1 body) collides with the
+		// rare easter scene and catfacts; Driver.pick()'s same-count rule
+		// blocks direct transitions between them, which is fine.
+		{
+			Name:   "didyouknow",
+			Weight: 20,
+			BgPath: bgDidYouKnow,
+			Elements: []frame.DispElement{
+				sceneTitle("did you know?"),
+				{
+					ID: idSceneMain, Type: "Text",
+					StartX: 20, StartY: 540, Width: 760, Height: 560,
+					Align: 2, FontSize: 38, FontID: fontProse,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["didyouknow"],
+			Mounts: []scene.Mount{
+				{ID: idSceneMain, Format: pipeAt(1), Geometry: vCenterQuoteBody},
+			},
+		},
+
+		// "On this day" — historical event for today's calendar date,
+		// sourced from Wikimedia's free "on this day / events" feed.
+		// Widget emits "On <Month> <DD>|<year>: <event text>"; the
+		// header row carries the date label in fg-dark prose and the
+		// body row carries the event prose, vCentered so short events
+		// (one-liners) sit visually balanced. Element count 5 (3 top +
+		// 2 body) collides with sky / weather / aqi / hn; the driver's
+		// same-count rule blocks direct transitions, which is fine.
+		{
+			Name:   "onthisday",
+			Weight: 20,
+			BgPath: bgOnThisDay,
+			Elements: []frame.DispElement{
+				sceneTitle("on this day"),
+				// Date row — "On <Month> <DD>", under the title.
+				{
+					ID: idSceneMain, Type: "Text",
+					StartX: 20, StartY: 540, Width: 760, Height: 60,
+					Align: 2, FontSize: 36, FontID: fontProseLight,
+					FontColor: cFgDark, BgColor: cBgHard,
+				},
+				// Body — event prose, vCentered.
+				{
+					ID: idSceneSub1, Type: "Text",
+					StartX: 20, StartY: 620, Width: 760, Height: 620,
+					Align: 2, FontSize: 36, FontID: fontProseLight,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["onthisday"],
+			Mounts: []scene.Mount{
+				{ID: idSceneMain, Format: pipeAt(0)},
+				{ID: idSceneSub1, Format: pipeAt(1)},
+			},
+		},
+
+		// "Sunrise" — today's sunrise / sunset / daylight hours. Three
+		// big mono rows under a small "Today" label; sunrise in yellow
+		// (morning) and sunset in orange (evening) so the colour pair
+		// carries the meaning without needing inline captions. 7
+		// elements total (3 always-on + 4 body); collides only with the
+		// other 7-element scenes (dayofyear, B5, ST, Discworld, jargon),
+		// and Driver.pick()'s same-count rule blocks direct transitions
+		// between them.
+		{
+			Name:   "sunrise",
+			Weight: 20,
+			BgPath: bgSunrise,
+			Elements: []frame.DispElement{
+				sceneTitle("today"),
+				// Sunrise time — big, yellow.
+				{
+					ID: idSceneSub1, Type: "Text",
+					StartX: 20, StartY: 560, Width: 760, Height: 120,
+					Align: 2, FontSize: 84, FontID: fontMono,
+					FontColor: cYellow, BgColor: cBgHard,
+				},
+				// Sunset time — big, orange.
+				{
+					ID: idSceneSub2, Type: "Text",
+					StartX: 20, StartY: 700, Width: 760, Height: 120,
+					Align: 2, FontSize: 84, FontID: fontMono,
+					FontColor: cOrange, BgColor: cBgHard,
+				},
+				// Daylight duration — medium, fg.
+				{
+					ID: idSceneSub3, Type: "Text",
+					StartX: 20, StartY: 840, Width: 760, Height: 100,
+					Align: 2, FontSize: 50, FontID: fontMono,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["sunrise"],
+			Mounts: []scene.Mount{
+				{ID: idSceneSub1, Format: pipeAt(0)},
+				{ID: idSceneSub2, Format: pipeAt(1)},
+				{ID: idSceneSub3, Format: pipeAt(2)},
+			},
+		},
+
+		// "Weather" — current outdoor conditions consolidated with the
+		// hazard feeds. Widget emits "<temp>°|<outlook>|<hazard>"; the
+		// outlook bucket carries WMO codes, smoke (PM2.5/AQI override),
+		// or hazard (active NWS alert at the configured point). The
+		// temperature row is huge proportional digits; the condition row
+		// is medium prose; the hazard row sits at the bottom in bright
+		// red and is blank when no NWS alert is active. Both temp and
+		// outlook colours flip to red when outlook == "hazard". The bg
+		// JPG is picked per outlook via BgPathFor so the corner icon
+		// matches the current condition. Element count 6 (3 top + 3
+		// body) collides with nasa / cocktail / iss; the driver's
+		// same-count rule blocks direct transitions, which is fine.
+		{
+			Name:   "weather",
+			Weight: 20,
+			BgPath: bgWeatherCloudy, // fallback before first cache fill
+			BgPathFor: func(raw string) string {
+				return weatherBgFor(weatherOutlookFrom(raw))
+			},
+			Elements: []frame.DispElement{
+				sceneTitle("weather"),
+				// Big temperature — proportional Roboto Condensed Light
+				// so the "63°" centres on its glyph mass (the smaller °
+				// glyph in mono Iosevka pulls the visual centre left of
+				// the geometric centre, leaving the condition word below
+				// looking misaligned). Colour set by formatter (flips
+				// red when outlook == "hazard").
+				{
+					ID: idSceneMain, Type: "Text",
+					StartX: 20, StartY: 530, Width: 760, Height: 240,
+					Align: 2, FontSize: 180, FontID: fontProseLight,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+				// Condition word — medium prose, colour set by formatter.
+				{
+					ID: idSceneSub1, Type: "Text",
+					StartX: 20, StartY: 820, Width: 760, Height: 120,
+					Align: 2, FontSize: 70, FontID: fontProse,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+				// Hazard message — bright red, blank unless an NWS alert
+				// is active for the configured point.
+				{
+					ID: idSceneSub2, Type: "Text",
+					StartX: 20, StartY: 960, Width: 760, Height: 80,
+					Align: 2, FontSize: 40, FontID: fontProseLight,
+					FontColor: cRed, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["weather"],
+			Mounts: []scene.Mount{
+				{ID: idSceneMain, Format: weatherTemp},
+				{ID: idSceneSub1, Format: weatherCondition},
+				{ID: idSceneSub2, Format: pipeAt(2), AllowEmpty: true},
+			},
+		},
+
+		// "NASA APOD" — Astronomy Picture of the Day. First scene to use
+		// the device's Image DispList element type; the widget emits
+		// "<url>|<title>|<date>" and the Image element's Url is wired in
+		// at install time via the Mount.Geometry callback (Image elements
+		// can't be patched via UpdateDisplayItems, but every scene
+		// activation is a full EnterCustomMode, so this is fine). 6
+		// elements total (3 always-on + 3 body) — unique among rotation
+		// scenes.
+		{
+			Name:   "nasa",
+			Weight: 20,
+			BgPath: bgNASA,
+			Elements: []frame.DispElement{
+				sceneTitle("NASA APOD"),
+				// Full-width image — URL set by the Mount.Geometry hook.
+				{
+					ID: idSceneSub1, Type: "Image",
+					StartX: 20, StartY: 560, Width: 760, Height: 540,
+					Align: 2,
+				},
+				// Title underneath the image.
+				{
+					ID: idSceneSub2, Type: "Text",
+					StartX: 20, StartY: 1120, Width: 760, Height: 80,
+					Align: 2, FontSize: 36, FontID: fontProse,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["nasa"],
+			Mounts: []scene.Mount{
+				{
+					ID:     idSceneSub1,
+					Format: pipeAt(0),
+					// Wire the widget's URL output (segment 0) into the
+					// Image element's Url field. The element's
+					// TextMessage is set by the driver but ignored by
+					// the device for Image-type elements.
+					Geometry: func(text string, e frame.DispElement) frame.DispElement {
+						e.Url = text
+						e.ImgLocalFlag = 0
+						return e
+					},
+				},
+				{ID: idSceneSub2, Format: pipeAt(1)},
+			},
+		},
+
+		// "Cocktail" — random drink from TheCocktailDB. Same shape as NASA
+		// APOD: a full-width Image element gets its Url wired in at install
+		// time via Mount.Geometry (Image elements can't be patched live, but
+		// every scene activation is a full EnterCustomMode, so a fresh URL
+		// lands on every show). Name goes in big prose underneath the
+		// photo; ingredient list as small fg-dark caption. The bottom-right
+		// glass glyph carries the "this is a cocktail" labelling work. 6
+		// elements total (3 always-on + 3 body) — matches NASA, and
+		// Driver.pick()'s same-count rule blocks direct nasa↔cocktail
+		// transitions, which is fine.
+		{
+			Name:   "cocktail",
+			Weight: 20,
+			BgPath: bgCocktail,
+			Elements: []frame.DispElement{
+				sceneTitle("cocktail"),
+				// Full-width image — URL set by the Mount.Geometry hook.
+				{
+					ID: idSceneMain, Type: "Image",
+					StartX: 20, StartY: 540, Width: 760, Height: 480,
+					Align: 2,
+				},
+				// Drink name — big prose.
+				{
+					ID: idSceneSub1, Type: "Text",
+					StartX: 20, StartY: 1040, Width: 760, Height: 100,
+					Align: 2, FontSize: 60, FontID: fontProse,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+				// Ingredient list — small, dim.
+				{
+					ID: idSceneSub2, Type: "Text",
+					StartX: 20, StartY: 1160, Width: 760, Height: 70,
+					Align: 2, FontSize: 28, FontID: fontProse,
+					FontColor: cFgDark, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["cocktail"],
+			Mounts: []scene.Mount{
+				{
+					ID:     idSceneMain,
+					Format: pipeAt(0),
+					// Wire the widget's URL output (segment 0) into the
+					// Image element's Url field. TextMessage gets set by
+					// the driver too but the device ignores it for Image
+					// elements.
+					Geometry: func(text string, e frame.DispElement) frame.DispElement {
+						e.Url = text
+						e.ImgLocalFlag = 0
+						return e
+					},
+				},
+				{ID: idSceneSub1, Format: pipeAt(1)},
+				{ID: idSceneSub2, Format: pipeAt(2)},
+			},
+		},
+
+		// "Easter" — rare (~0.5%) treat. Just the punchline body of an
+		// easter-egg one-liner on top of a giant gruvbox-yellow egg
+		// shape baked into the bg. Element count 4 (3 top + 1 body)
+		// is unique so it's a valid pick after any other scene.
+		{
+			Name:   "easter",
+			Weight: 1,
+			BgPath: bgEaster,
+			Elements: []frame.DispElement{
+				sceneTitle("easter egg"),
+				{
+					ID: idSceneMain, Type: "Text",
+					StartX: 20, StartY: 540, Width: 760, Height: 110,
+					Align: 2, FontSize: 36, FontID: fontProse,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["easter"],
+			Mounts: []scene.Mount{
+				{ID: idSceneMain, Format: pipeAt(1)},
+			},
+		},
+
+		// "ISS" — current sub-satellite point (lat/lon) of the
+		// International Space Station, plus the wall-clock time until
+		// its next visible pass over our location (when available) and
+		// a coarse "over <region>" hint. Widget emits
+		// "<lat>°, <lon>°|<next-pass>|over <region>"; the pass and
+		// region segments are AllowEmpty because the next-pass API has
+		// historically been flaky and the region lookup is a coarse
+		// continent-vs-ocean band table that may return an empty hint.
+		// 10% margins (StartX 80, Width 640) match the quote scenes. 6
+		// elements total (3 top + 3 body) collides with nasa / cocktail
+		// — Driver.pick()'s same-count rule blocks direct transitions
+		// between them, which is fine.
+		{
+			Name:   "iss",
+			Weight: 20,
+			BgPath: bgISS,
+			Elements: []frame.DispElement{
+				sceneTitle("ISS overhead"),
+				// Big lat/lon — mono, fg.
+				{
+					ID: idSceneMain, Type: "Text",
+					StartX: 80, StartY: 520, Width: 640, Height: 140,
+					Align: 2, FontSize: 80, FontID: fontMono,
+					FontColor: cFg, BgColor: cBgHard,
+				},
+				// Next-pass row — medium prose, yellow (event-imminent
+				// signal colour).
+				{
+					ID: idSceneSub1, Type: "Text",
+					StartX: 80, StartY: 680, Width: 640, Height: 100,
+					Align: 2, FontSize: 50, FontID: fontProseLight,
+					FontColor: cYellow, BgColor: cBgHard,
+				},
+				// Region hint — small, dim caption.
+				{
+					ID: idSceneSub2, Type: "Text",
+					StartX: 80, StartY: 800, Width: 640, Height: 80,
+					Align: 2, FontSize: 32, FontID: fontProseLight,
+					FontColor: cFgDark, BgColor: cBgHard,
+				},
+			},
+			Widget: widgets["iss"],
+			Mounts: []scene.Mount{
+				{ID: idSceneMain, Format: pipeAt(0)},
+				{ID: idSceneSub1, Format: pipeAt(1), AllowEmpty: true},
+				{ID: idSceneSub2, Format: pipeAt(2), AllowEmpty: true},
+			},
+		},
 	}
 }
 
@@ -314,24 +836,521 @@ func directionalColor(s string) string {
 	}
 }
 
-// --- HEADER|BODY splitters ---
+// --- pipe-separated segment formatters ---
 //
-// Used by ambient (whimsy rotator outputs) and calendar (day-of-year).
-// Source widgets put a "|" between the small/header text and the
-// large/body text; these helpers slice on the first "|".
+// Sources emit pipe-separated fields ("Label|body" for whimsy,
+// "Source|body|author" for quotes). pipeAt picks the i-th segment;
+// pipeAtColor does the same and tags the rendered text with a fixed
+// color so the scene can highlight the segment (e.g. quote authors in
+// gruvbox aqua).
 
-func pipeHead(s string) (text, color string) {
-	if i := strings.IndexByte(s, '|'); i >= 0 {
-		return s[:i], ""
+func pipeAt(i int) func(raw string) (text, color string) {
+	return func(raw string) (text, color string) {
+		parts := strings.Split(raw, "|")
+		if i < 0 || i >= len(parts) {
+			return "", ""
+		}
+		return parts[i], ""
+	}
+}
+
+func pipeAtColor(i int, c string) func(raw string) (text, color string) {
+	return func(raw string) (text, color string) {
+		parts := strings.Split(raw, "|")
+		if i < 0 || i >= len(parts) {
+			return "", c
+		}
+		return parts[i], c
+	}
+}
+
+// pipeAtUnquoted is pipeAt with stripQuotes applied to the picked
+// segment — used by the quote scene's body element so the dedicated
+// author block isn't doubled up by literal quotation marks wrapping
+// the prose.
+func pipeAtUnquoted(i int) func(raw string) (text, color string) {
+	return func(raw string) (text, color string) {
+		text, color = pipeAt(i)(raw)
+		return stripQuotes(text), color
+	}
+}
+
+// --- dictionary entry formatters ---
+//
+// Devil's Dictionary and Jargon File both emit "Source|<entry>|<author>"
+// where the entry is shaped as "HEADWORD[,] [pronunciation]? POS. definition".
+// Devil's uses an uppercase headword followed by a comma; Jargon uses a
+// lowercase headword with an optional slash-bracketed pronunciation list.
+// dictionaryEntryRE captures (headword, pos, definition) from either; the
+// dictionaryWord / dictionaryPOS / dictionaryDefinition formatters surface
+// one piece each to its own Text element so the scene reads as a dictionary
+// entry instead of one undifferentiated paragraph. The formatters return
+// "" for color — the scene's element-level FontColor carries the visual
+// styling (yellow for Jargon, red for Devil's).
+//
+// POS atoms are an explicit allow-list of the tokens actually used by the
+// two corpora (n, v, vi, vt, adj, adv, prep, conj, pp, interj, pron, num,
+// art, excl, pl, i, t, imp, abbrev); compound forms like "n.,vi" and
+// "v.t." are built by joining atoms with "." or ",". A short allow-list
+// prevents the headword group from greedily eating a real noun when the
+// POS marker happens to be missing its trailing dot (e.g. "code monkey n
+// 1. A person...").
+var dictionaryEntryRE = regexp.MustCompile(
+	`^(.+?),?\s+(?:/[^/]+/(?:,\s*/[^/]+/)*\s+)?` +
+		`((?:n|v|vi|vt|adj|adv|prep|conj|pp|interj|pron|num|art|excl|pl|i|t|imp|abbrev)` +
+		`(?:\.?[.,](?:n|v|vi|vt|adj|adv|prep|conj|pp|interj|pron|num|art|excl|pl|i|t|imp|abbrev))*)` +
+		`\.?\s+(.+)$`,
+)
+
+// dictionaryBody returns segment 1 of the widget's "Source|body|author"
+// output — the dictionary entry text itself.
+func dictionaryBody(raw string) string {
+	parts := strings.Split(raw, "|")
+	if len(parts) < 2 {
+		return raw
+	}
+	return parts[1]
+}
+
+func dictionaryWord(raw string) (text, color string) {
+	body := dictionaryBody(raw)
+	if m := dictionaryEntryRE.FindStringSubmatch(body); m != nil {
+		return m[1], ""
+	}
+	// Fallback: first word up to a space, so the slot is never empty.
+	if i := strings.IndexByte(body, ' '); i > 0 {
+		return body[:i], ""
+	}
+	return body, ""
+}
+
+func dictionaryPOS(raw string) (text, color string) {
+	body := dictionaryBody(raw)
+	if m := dictionaryEntryRE.FindStringSubmatch(body); m != nil {
+		return m[2] + ".", ""
 	}
 	return "", ""
 }
 
-func pipeTail(s string) (text, color string) {
-	if i := strings.IndexByte(s, '|'); i >= 0 {
-		return s[i+1:], ""
+func dictionaryDefinition(raw string) (text, color string) {
+	body := dictionaryBody(raw)
+	if m := dictionaryEntryRE.FindStringSubmatch(body); m != nil {
+		return m[3], ""
 	}
-	return s, ""
+	return body, ""
+}
+
+// vCenterQuoteBody shifts the quote body's StartY downward so a short
+// (one- or two-line) quote sits visually centred within its declared
+// track between the source label above and the author block below.
+// Long quotes that would fill or overflow the track are left anchored
+// at the track top so the device's wrapping/clipping behaves as before.
+//
+// charsPerLine and lineHeight are empirical estimates for the body's
+// FontSize 34 + width 760 + prose font combination (see docs/api.md).
+// Adjust here when the device's rendering math is better understood.
+func vCenterQuoteBody(text string, e frame.DispElement) frame.DispElement {
+	const (
+		charsPerLine = 32
+		lineHeight   = 45
+		trackTop     = 540
+		trackBottom  = 1120
+	)
+	const trackH = trackBottom - trackTop
+	lines := (len(text) + charsPerLine - 1) / charsPerLine
+	if lines < 1 {
+		lines = 1
+	}
+	rendered := lines * lineHeight
+	if rendered >= trackH {
+		e.StartY = trackTop
+		e.Height = trackH
+		return e
+	}
+	e.StartY = trackTop + (trackH-rendered)/2
+	e.Height = rendered
+	return e
+}
+
+// shrinkHeadword reduces a dictionary headword's FontSize when the text
+// would otherwise wrap. Estimates the rendered width as
+// `len(text) * FontSize * charWidthRatio`; if that exceeds the 640 px
+// budget, scales the FontSize down proportionally (clamped to a sane
+// minimum). With a condensed font this rarely fires — most headwords
+// fit at the default 90 px.
+func shrinkHeadword(text string, e frame.DispElement) frame.DispElement {
+	const (
+		maxFontSize    = 90
+		minFontSize    = 44
+		widthBudget    = 640
+		charWidthRatio = 0.45 // empirical for Roboto Condensed Light
+	)
+	if text == "" {
+		return e
+	}
+	estimated := int(float64(len(text)) * float64(maxFontSize) * charWidthRatio)
+	if estimated <= widthBudget {
+		e.FontSize = maxFontSize
+		return e
+	}
+	shrunk := int(float64(widthBudget) / (float64(len(text)) * charWidthRatio))
+	if shrunk < minFontSize {
+		shrunk = minFontSize
+	}
+	e.FontSize = shrunk
+	return e
+}
+
+// vCenterDictionaryBody is vCenterQuoteBody with a tighter track that
+// sits below the dictionary scene's headword+POS rows (which end at
+// ~y=700). Keeps long definitions from bleeding upward into the
+// headword zone — the SCSI bug we hit before tuning the regex.
+func vCenterDictionaryBody(text string, e frame.DispElement) frame.DispElement {
+	const (
+		charsPerLine = 32
+		lineHeight   = 45
+		trackTop     = 720
+		trackBottom  = 1100
+	)
+	const trackH = trackBottom - trackTop
+	lines := (len(text) + charsPerLine - 1) / charsPerLine
+	if lines < 1 {
+		lines = 1
+	}
+	rendered := lines * lineHeight
+	if rendered >= trackH {
+		e.StartY = trackTop
+		e.Height = trackH
+		return e
+	}
+	e.StartY = trackTop + (trackH-rendered)/2
+	e.Height = rendered
+	return e
+}
+
+// stripQuotes removes a matching pair of opening/closing quotation
+// marks bracketing s. ASCII " and ' plus the Unicode curly variants
+// are recognised; only one pair is stripped (nested quotes inside the
+// body are intentional and stay).
+func stripQuotes(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 {
+		return s
+	}
+	pairs := []struct{ open, close string }{
+		{"\"", "\""},
+		{"'", "'"},
+		{"“", "”"}, // “ ”
+		{"‘", "’"}, // ‘ ’
+		{"«", "»"}, // « »
+	}
+	for _, p := range pairs {
+		if strings.HasPrefix(s, p.open) && strings.HasSuffix(s, p.close) &&
+			len(s) >= len(p.open)+len(p.close) {
+			return strings.TrimSpace(s[len(p.open) : len(s)-len(p.close)])
+		}
+	}
+	return s
+}
+
+// --- weather formatters ---
+//
+// Widget output: "<temp>°|<outlook>|<hazard>", e.g. "63°|clear|" or
+// "78°|hazard|Red Flag Warning". weatherTempFrom / weatherOutlookFrom
+// pick the two leading segments; the hazard segment is wired directly
+// via pipeAt(2) on the scene mount. weatherCondition colours its half
+// by outlook (red for "hazard", orange for "smoke", etc.); weatherTemp
+// colours its half by temperature value, except outlook "hazard"
+// forces red regardless of the temperature reading.
+
+// weatherTempFrom returns the leading "<temp>°" segment, or the whole
+// raw string when no pipe is present (defensive fallback for stale
+// pre-merge widget output).
+func weatherTempFrom(raw string) string {
+	if i := strings.IndexByte(raw, '|'); i >= 0 {
+		return raw[:i]
+	}
+	return raw
+}
+
+// weatherOutlookFrom returns the outlook segment (the second pipe-
+// separated field). Empty string when the segment is missing.
+func weatherOutlookFrom(raw string) string {
+	parts := strings.Split(raw, "|")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
+}
+
+// weatherOutlookColor returns the gruvbox accent for a given outlook —
+// yellow for clear, blue for rain/drizzle, fg for snow, aqua for fog,
+// fg-dark for cloudy/overcast, red for thunder, orange for smoke, red
+// for hazard. Reproduces the old "now" scene's colour coding plus the
+// two consolidated hazard buckets.
+func weatherOutlookColor(outlook string) string {
+	switch outlook {
+	case "clear":
+		return cYellow
+	case "rain", "drizzle":
+		return cBlue
+	case "snow":
+		return cFg
+	case "fog":
+		return cAqua
+	case "cloudy", "overcast":
+		return cFgDark
+	case "thunder":
+		return cRed
+	case "smoke":
+		return cOrange
+	case "hazard":
+		return cRed
+	default:
+		return cFg
+	}
+}
+
+// Weather threshold defaults — overridden once
+// weather.Client.LoadThresholds returns a climate fit for the configured
+// location. The fixed-default values match Bay Area weather (where this
+// dashboard was first calibrated); SetWeatherThresholds replaces them
+// with location-specific 15th/85th percentile bounds.
+var (
+	weatherColdBound atomic.Int32 // °F below which temp reads "blue"
+	weatherHotBound  atomic.Int32 // °F at/above which temp reads "orange"
+)
+
+func init() {
+	weatherColdBound.Store(50)
+	weatherHotBound.Store(80)
+}
+
+// SetWeatherThresholds replaces the dynamic cold/hot bounds used by
+// weatherTempColor. Called from serve.go once the weather widget's
+// LoadThresholds fetch completes. The fixed 68-75°F comfort band is
+// unaffected.
+func SetWeatherThresholds(cold, hot int) {
+	weatherColdBound.Store(int32(cold))
+	weatherHotBound.Store(int32(hot))
+}
+
+// weatherTempColor maps an integer Fahrenheit reading to a gruvbox
+// accent, scaling from cold (blue) through comfortable (green) up to
+// hot (red). The cold and hot bounds are dynamic (auto-calibrated to
+// the configured location's climate via SetWeatherThresholds); the
+// 68-75°F comfort band in the middle is fixed.
+func weatherTempColor(temp int) string {
+	cold := int(weatherColdBound.Load())
+	hot := int(weatherHotBound.Load())
+	switch {
+	case temp < cold:
+		return cBlue
+	case temp < 68:
+		return cAqua
+	case temp <= 75:
+		return cGreen
+	case temp <= hot:
+		return cYellow
+	case temp <= hot+5:
+		return cOrange
+	default:
+		return cRed
+	}
+}
+
+// weatherTemp colours the temperature segment by value, except an
+// outlook of "hazard" forces red so the alert reading is unmissable
+// regardless of the actual temperature.
+func weatherTemp(raw string) (text, color string) {
+	temp := weatherTempFrom(raw)
+	if weatherOutlookFrom(raw) == "hazard" {
+		return temp, cRed
+	}
+	n, err := strconv.Atoi(strings.TrimSuffix(temp, "°"))
+	if err != nil {
+		return temp, cFg
+	}
+	return temp, weatherTempColor(n)
+}
+
+func weatherCondition(raw string) (text, color string) {
+	outlook := weatherOutlookFrom(raw)
+	return outlook, weatherOutlookColor(outlook)
+}
+
+// --- promoted-quote scene helper ---
+//
+// The six promoted quote/dictionary scenes (babylon5, startrek, discworld,
+// zenquotes, devil, plus jargon's structural sibling) share a near-identical
+// four-body-element shape: small source label, large body, optional author
+// block, optional static tagline. QuoteScene assembles one from a few
+// declarative options so the per-scene blocks stay short and obviously
+// correct. All text uses fontProseLight (Roboto Condensed Light); margins
+// are 10% of the 800px canvas — StartX 80, Width 640 — on every element.
+
+// QuoteSceneOpts describes a promoted-quote scene. Tagline == "" omits the
+// fourth element; HasAuthor == false omits the author mount. Title is the
+// short label shown in the canonical sceneTitle row at the top of the body
+// area (typically the source name — "Babylon 5", "Star Trek", etc.).
+type QuoteSceneOpts struct {
+	Name         string
+	Title        string
+	Weight       int
+	BgPath       string
+	Widget       widget.Widget
+	Tagline      string
+	TaglineColor string
+	HasAuthor    bool
+}
+
+// QuoteScene returns the *scene.Scene for a promoted-quote layout. IDs are
+// assigned sequentially: title -> idSceneTitle, body -> idSceneSub1,
+// author -> idSceneSub2 (when HasAuthor), tagline -> idSceneSub3 (when
+// Tagline != "").
+func QuoteScene(opts QuoteSceneOpts) *scene.Scene {
+	elements := []frame.DispElement{
+		sceneTitle(opts.Title),
+		quoteBody(idSceneSub1),
+	}
+	mounts := []scene.Mount{
+		{ID: idSceneSub1, Format: pipeAtUnquoted(1), Geometry: vCenterQuoteBody},
+	}
+	if opts.HasAuthor {
+		elements = append(elements, quoteAuthor(idSceneSub2))
+		mounts = append(mounts, scene.Mount{
+			ID: idSceneSub2, Format: pipeAtColor(2, cAqua), AllowEmpty: true,
+		})
+	}
+	if opts.Tagline != "" {
+		elements = append(elements, quoteTagline(idSceneSub3, opts.Tagline, opts.TaglineColor))
+	}
+	return &scene.Scene{
+		Name:     opts.Name,
+		Weight:   opts.Weight,
+		BgPath:   opts.BgPath,
+		Elements: elements,
+		Widget:   opts.Widget,
+		Mounts:   mounts,
+	}
+}
+
+func quoteBody(id int) frame.DispElement {
+	return frame.DispElement{
+		ID: id, Type: "Text",
+		StartX: 80, StartY: 540, Width: 640, Height: 520,
+		Align: 2, FontSize: 34, FontID: fontProseLight,
+		FontColor: cFg, BgColor: cBgHard,
+	}
+}
+
+func quoteAuthor(id int) frame.DispElement {
+	return frame.DispElement{
+		ID: id, Type: "Text",
+		StartX: 80, StartY: 1080, Width: 640, Height: 70,
+		Align: 2, FontSize: 32, FontID: fontProseLight,
+		FontColor: cAqua, BgColor: cBgHard,
+	}
+}
+
+func quoteTagline(id int, text, color string) frame.DispElement {
+	return frame.DispElement{
+		ID: id, Type: "Text",
+		StartX: 80, StartY: 1160, Width: 640, Height: 50,
+		Align: 2, FontSize: 26, FontID: fontProseLight,
+		FontColor: color, BgColor: cBgHard,
+		TextMessage: text,
+	}
+}
+
+// --- dictionary scene helper ---
+//
+// DictionaryScene builds a scene that renders a dictionary-shaped entry
+// (Devil's Dictionary, Jargon File) as four distinct typed regions:
+// source label, big mono headword, medium aqua part-of-speech, body
+// definition. Optionally adds an author block (Devil's carries
+// "Ambrose Bierce") and a static tagline. Shares the 10%-margin
+// (StartX 80, Width 640) convention with QuoteScene.
+
+// DictionarySceneOpts describes a dictionary-shaped scene. HasAuthor adds
+// the author element + mount (segment 2 of the widget output). Tagline
+// adds a static caption beneath everything else.
+type DictionarySceneOpts struct {
+	Name          string
+	Title         string
+	Weight        int
+	BgPath        string
+	Widget        widget.Widget
+	HeadwordColor string
+	HasAuthor     bool
+	Tagline       string
+	TaglineColor  string
+}
+
+func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
+	elements := []frame.DispElement{
+		sceneTitle(opts.Title),
+		// Headword (big condensed, scene-chosen colour). Height tightened
+		// to just clear FontSize 90 so the POS sits right under it
+		// rather than 50px of empty padding away. The Geometry callback
+		// auto-shrinks the FontSize for long headwords so they fit on
+		// one line instead of wrapping; condensed font means this rarely
+		// triggers in practice.
+		{
+			ID: idSceneSub1, Type: "Text",
+			StartX: 80, StartY: 540, Width: 640, Height: 100,
+			Align: 2, FontSize: 90, FontID: fontProseLight,
+			FontColor: opts.HeadwordColor, BgColor: cBgHard,
+		},
+		// Part of speech (medium prose, aqua).
+		{
+			ID: idSceneSub2, Type: "Text",
+			StartX: 80, StartY: 650, Width: 640, Height: 50,
+			Align: 2, FontSize: 36, FontID: fontProseLight,
+			FontColor: cAqua, BgColor: cBgHard,
+		},
+		// Definition (body prose, fg, vertically centred within its
+		// own track so long entries never bleed up into the headword).
+		{
+			ID: idSceneSub3, Type: "Text",
+			StartX: 80, StartY: 720, Width: 640, Height: 380,
+			Align: 2, FontSize: 34, FontID: fontProseLight,
+			FontColor: cFg, BgColor: cBgHard,
+		},
+	}
+	mounts := []scene.Mount{
+		{ID: idSceneSub1, Format: dictionaryWord, Geometry: shrinkHeadword},
+		{ID: idSceneSub2, Format: dictionaryPOS, AllowEmpty: true},
+		{ID: idSceneSub3, Format: dictionaryDefinition, Geometry: vCenterDictionaryBody},
+	}
+	if opts.HasAuthor {
+		elements = append(elements, frame.DispElement{
+			ID: idSceneSub4, Type: "Text",
+			StartX: 80, StartY: 1110, Width: 640, Height: 50,
+			Align: 2, FontSize: 32, FontID: fontProseLight,
+			FontColor: cAqua, BgColor: cBgHard,
+		})
+		mounts = append(mounts, scene.Mount{
+			ID: idSceneSub4, Format: pipeAt(2), AllowEmpty: true,
+		})
+	}
+	if opts.Tagline != "" {
+		elements = append(elements, frame.DispElement{
+			ID: idSceneSub5, Type: "Text",
+			StartX: 80, StartY: 1170, Width: 640, Height: 50,
+			Align: 2, FontSize: 26, FontID: fontProseLight,
+			FontColor: opts.TaglineColor, BgColor: cBgHard,
+			TextMessage: opts.Tagline,
+		})
+	}
+	return &scene.Scene{
+		Name:     opts.Name,
+		Weight:   opts.Weight,
+		BgPath:   opts.BgPath,
+		Elements: elements,
+		Widget:   opts.Widget,
+		Mounts:   mounts,
+	}
 }
 
 // --- moon formatters ---

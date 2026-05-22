@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"sync"
+	"strconv"
 	"time"
 
 	"github.com/dragonpaw/divoom/internal/adb"
@@ -16,29 +16,15 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget/easter"
 	"github.com/dragonpaw/divoom/internal/widget/facts"
 	"github.com/dragonpaw/divoom/internal/widget/finance"
+	"github.com/dragonpaw/divoom/internal/widget/food"
 	"github.com/dragonpaw/divoom/internal/widget/news"
-	"github.com/dragonpaw/divoom/internal/widget/rotator"
+	"github.com/dragonpaw/divoom/internal/widget/quotes"
 	"github.com/dragonpaw/divoom/internal/widget/sky"
 	"github.com/dragonpaw/divoom/internal/widget/weather"
+	"github.com/dragonpaw/divoom/internal/widget/wikipedia"
 )
 
-const (
-	defaultLat = "37.9358" // Richmond, CA centroid
-	defaultLon = "-122.3477"
-)
-
-// Widget data-refresh cadences — how often each source is asked for new
-// data. Completely independent from how long each scene stays on screen
-// (those durations live in scenes.go). To re-tune a widget's data
-// freshness, change one constant here.
-const (
-	weatherInterval = 30 * time.Minute
-	qqqInterval     = 1 * time.Hour
-	moonInterval    = 6 * time.Hour
-	whimsyInterval  = 60 * time.Second // fresh per Ambient turn
-)
-
-// hnKeywords gates which HackerNews stories qualify for the whimsy slot.
+// hnKeywords gates which HackerNews stories qualify for the hn scene.
 // Tuned to Ash's interests (Claude, Linux, 3D printing, PC gaming).
 var hnKeywords = []string{
 	"claude", "anthropic", "llm",
@@ -47,14 +33,11 @@ var hnKeywords = []string{
 	"steam", "valve", "proton",
 }
 
-// runServe installs per-scene backgrounds, starts every widget runner in
-// the background, then rotates scenes forever. Time + Date are always on
-// the top; the bottom area swaps between Now / Markets / Sky / Ambient.
+// runServe installs per-scene backgrounds, then rotates scenes forever.
+// Each scene's widget refreshes on unload, so the next activation
+// renders from a warm cache without waiting on the network. Time + Date
+// + DoW are always on top; the bottom area swaps Markets / Sky / Ambient.
 func runServe(ctx context.Context) error {
-	lat := getenv("DIVOOM_LAT", defaultLat)
-	lon := getenv("DIVOOM_LON", defaultLon)
-	slog.Info("location", "lat", lat, "lon", lon)
-
 	client, _, err := connectToFrame(ctx)
 	if err != nil {
 		return err
@@ -64,46 +47,100 @@ func runServe(ctx context.Context) error {
 		return err
 	}
 
-	// Build the whimsy rotator (one source picked at random on each Fetch,
-	// weighted, with rare easter eggs). All HEADER|BODY sources, rendered
-	// by the single "ambient" card scene.
-	whimsyWidget := rotator.New("whimsy", []rotator.Source{
-		{Widget: facts.NewCatFact(), Weight: 3},
-		{Widget: facts.NewUselessFact(), Weight: 3},
-		{Widget: news.NewHN(hnKeywords), Weight: 3},
-		{Widget: calendar.NewDayOfYear(), Weight: 3},
-		{Widget: easter.New(), Weight: 1},
-	}).WithMaxLen(160) // ~4 lines at FontSize 26 (line height ~100px observed)
-
-	weatherR := widget.NewRunner(weather.New(lat, lon), weatherInterval)
-	qqqR := widget.NewRunner(finance.NewTicker("QQQ"), qqqInterval)
-	moonR := widget.NewRunner(sky.NewMoon(), moonInterval)
-	whimsyR := widget.NewRunner(whimsyWidget, whimsyInterval)
-
-	runners := []*widget.Runner{weatherR, qqqR, moonR, whimsyR}
-	var wg sync.WaitGroup
-	for _, r := range runners {
-		r := r
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			slog.Info("starting widget runner", "widget", r.Name(), "interval", r.Interval)
-			r.Start(ctx)
-		}()
-	}
+	weatherWidget := weather.New("37.9358", "-122.3477")
+	// Auto-calibrate weather temperature colour thresholds to the
+	// location's climate. Fire-and-forget: daemon startup doesn't wait
+	// on the archive API (it can take 5-10s over 5 years of data).
+	// Until it returns, the static defaults baked into scenes.go
+	// stand; on success the next scene activation picks up the new
+	// bounds via atomic load.
+	go func() {
+		cold, hot, err := weatherWidget.LoadThresholds(ctx)
+		if err != nil {
+			slog.Warn("weather threshold calibration failed; using static defaults",
+				"err", err, "cold", 50, "hot", 80)
+			return
+		}
+		SetWeatherThresholds(cold, hot)
+		slog.Info("weather thresholds calibrated",
+			"lat", weatherWidget.Lat(),
+			"lon", weatherWidget.Lon(),
+			"cold_below_F", cold,
+			"hot_at_or_above_F", hot,
+		)
+	}()
 
 	driver := &scene.Driver{
 		Client:   client,
-		AlwaysOn: alwaysOn(),
-		Scenes:   buildScenes(weatherR, qqqR, moonR, whimsyR),
+		AlwaysOn: alwaysOn,
+		Scenes: buildScenes(map[string]widget.Widget{
+			"markets":   finance.NewTicker("QQQ"),
+			"sky":       sky.NewMoon(),
+			"hn":        news.NewHN(hnKeywords),
+			"dayofyear": calendar.NewDayOfYear(),
+			"easter":    easter.New(),
+			"babylon5":  quotes.NewBabylon5(),
+			"startrek":  quotes.NewStarTrek(),
+			"discworld": quotes.NewDiscworld(),
+			"jargon":     quotes.NewJargonFile(),
+			"catfacts":   facts.NewCatFact(),
+			"didyouknow": facts.NewUselessFact(),
+			"sunrise":    sky.NewSunrise(),
+			"weather":    weatherWidget,
+			"zenquotes":  quotes.NewZenQuotes(),
+			"devil":      quotes.NewDevilsDictionary(),
+			"nasa":       sky.NewAPOD(),
+			"cocktail":   food.New(),
+			"onthisday":  wikipedia.NewOnThisDay(),
+			"iss":        sky.NewISS("37.9358", "-122.3477"),
+		}),
 	}
-	slog.Info("scene rotation starting", "scenes", len(driver.Scenes))
+	logStartup(driver)
 	if err := driver.Run(ctx); err != nil {
 		slog.Error("scene driver returned", "err", err)
 	}
-
-	wg.Wait()
 	return nil
+}
+
+// counter is the optional Count() interface implemented by static quote
+// sources (`*quotes.Source`). Widgets that fetch from the network or
+// rotate across sub-widgets don't implement it and log as "live".
+type counter interface {
+	Count() int
+}
+
+// logStartup reports the rotation config: one line per scene with its
+// weight, share %, and entry count ("live" for HTTP-fetching widgets and
+// rotators, an integer for static quote sources, "—" for scenes with no
+// widget). Operators reading the daemon logs see exactly what's wired up
+// without cracking open the source.
+func logStartup(d *scene.Driver) {
+	slog.Info("scene rotation starting", "scenes", len(d.Scenes), "duration", scene.SceneDuration)
+	totalWeight := 0
+	for _, s := range d.Scenes {
+		totalWeight += s.Weight
+	}
+	for _, s := range d.Scenes {
+		share := 0.0
+		if totalWeight > 0 {
+			share = float64(s.Weight) / float64(totalWeight) * 100
+		}
+		entries := "live"
+		switch w := s.Widget.(type) {
+		case nil:
+			entries = "—"
+		case counter:
+			entries = strconv.Itoa(w.Count())
+		default:
+			_ = w
+		}
+		slog.Info("scene configured",
+			"name", s.Name,
+			"weight", s.Weight,
+			"share_pct", fmt.Sprintf("%.0f", share),
+			"entries", entries,
+		)
+	}
 }
 
 // pushSceneBackgrounds renders each scene's bg JPG and adb-pushes it to
@@ -115,10 +152,39 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		render func() ([]byte, error)
 		path   string
 	}{
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneNow, render.FormatJPEG, now) }, bgNow},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneMarkets, render.FormatJPEG, now) }, bgMarkets},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneSky, render.FormatJPEG, now) }, bgSky},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneAmbient, render.FormatJPEG, now) }, bgAmbient},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneHN, render.FormatJPEG, now) }, bgHN},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneDayOfYear, render.FormatJPEG, now) }, bgDayOfYear},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now) }, bgEaster},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneBabylon5, render.FormatJPEG, now) }, bgBabylon5},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneStarTrek, render.FormatJPEG, now) }, bgStarTrek},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneDiscworld, render.FormatJPEG, now) }, bgDiscworld},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneJargon, render.FormatJPEG, now) }, bgJargon},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneCatFacts, render.FormatJPEG, now) }, bgCatFacts},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneDidYouKnow, render.FormatJPEG, now) }, bgDidYouKnow},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneSunrise, render.FormatJPEG, now) }, bgSunrise},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneZenQuotes, render.FormatJPEG, now) }, bgZenQuotes},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneDevil, render.FormatJPEG, now) }, bgDevil},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneNASA, render.FormatJPEG, now) }, bgNASA},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneCocktail, render.FormatJPEG, now) }, bgCocktail},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneOnThisDay, render.FormatJPEG, now) }, bgOnThisDay},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneISS, render.FormatJPEG, now) }, bgISS},
+	}
+	// One bg per weather outlook, each carrying the matching icon in the
+	// bottom-right corner; the scene's BgPathFor picks among these at
+	// activation time based on the current widget value.
+	for _, o := range weatherOutlooks {
+		outlook, path := o.Outlook, o.BgPath
+		bgs = append(bgs, struct {
+			render func() ([]byte, error)
+			path   string
+		}{
+			render: func() ([]byte, error) {
+				return render.SceneWeatherBackground(outlook, render.FormatJPEG, now)
+			},
+			path: path,
+		})
 	}
 	for _, b := range bgs {
 		data, err := b.render()
@@ -147,11 +213,4 @@ func pushBytes(ctx context.Context, data []byte, devicePath string) error {
 	pushCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return adb.Push(pushCtx, tmp.Name(), devicePath)
-}
-
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }

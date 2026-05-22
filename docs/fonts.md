@@ -20,6 +20,16 @@ Snapshot of `POST https://appin.divoom-gz.com/Device/GetTimeDialFontV2` from 202
 - `52` — successfully renders Time elements in our display tests.
 - `126` — referenced in the docs example (p374) but not yet exercised.
 
+## Locally-installed custom fonts
+
+These IDs are **not in the cloud catalog** — they are adb-pushed and registered in `/divoom-config/system/font_list.cfg` on our device only. See [`api.md` → "Custom font workflow"](api.md).
+
+| ID | Font | TTF size | File on device |
+|---:|------|---------:|----------------|
+| 7  | Iosevka Regular            | 10 MB      | `/usr/share/divoom_app/divoom/21/8.bin`  |
+| 9  | Roboto Condensed Regular   | 505 KB     | `/usr/share/divoom_app/divoom/21/10.bin` |
+| 11 | Roboto Condensed Light     | 499 KB     | `/usr/share/divoom_app/divoom/21/12.bin` |
+
 ## Full list
 
 | ID | Ext | Encryption | URL fragment |

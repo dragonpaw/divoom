@@ -41,18 +41,78 @@ func runRender(args []string) error {
 			return render.HeroBackground(render.FormatJPEG, now)
 		}},
 		// Per-scene backgrounds the daemon pushes via adb.
-		{name: "scene-now", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneNow, render.FormatJPEG, now)
-		}},
 		{name: "scene-markets", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneMarkets, render.FormatJPEG, now)
 		}},
 		{name: "scene-sky", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneSky, render.FormatJPEG, now)
 		}},
-		{name: "scene-ambient", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneAmbient, render.FormatJPEG, now)
+		{name: "scene-hn", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneHN, render.FormatJPEG, now)
 		}},
+		{name: "scene-dayofyear", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneDayOfYear, render.FormatJPEG, now)
+		}},
+		{name: "scene-easter", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now)
+		}},
+		{name: "scene-babylon5", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneBabylon5, render.FormatJPEG, now)
+		}},
+		{name: "scene-startrek", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneStarTrek, render.FormatJPEG, now)
+		}},
+		{name: "scene-discworld", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneDiscworld, render.FormatJPEG, now)
+		}},
+		{name: "scene-jargon", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneJargon, render.FormatJPEG, now)
+		}},
+		{name: "scene-catfacts", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneCatFacts, render.FormatJPEG, now)
+		}},
+		{name: "scene-didyouknow", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneDidYouKnow, render.FormatJPEG, now)
+		}},
+		{name: "scene-sunrise", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneSunrise, render.FormatJPEG, now)
+		}},
+		{name: "scene-zenquotes", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneZenQuotes, render.FormatJPEG, now)
+		}},
+		{name: "scene-devil", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneDevil, render.FormatJPEG, now)
+		}},
+		{name: "scene-nasa", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneNASA, render.FormatJPEG, now)
+		}},
+		{name: "scene-cocktail", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneCocktail, render.FormatJPEG, now)
+		}},
+		{name: "scene-onthisday", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneOnThisDay, render.FormatJPEG, now)
+		}},
+		{name: "scene-iss", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneISS, render.FormatJPEG, now)
+		}},
+	}
+	// One preview per weather outlook so the icon set can be spot-checked
+	// without spinning up the daemon.
+	for _, outlook := range []string{
+		"clear", "cloudy", "overcast", "rain",
+		"drizzle", "snow", "fog", "thunder",
+		"smoke", "hazard",
+	} {
+		o := outlook
+		scenes = append(scenes, struct {
+			name   string
+			render func() ([]byte, error)
+		}{
+			name: "scene-weather-" + o,
+			render: func() ([]byte, error) {
+				return render.SceneWeatherBackground(o, render.FormatJPEG, now)
+			},
+		})
 	}
 
 	if len(scenes) == 0 {

@@ -1,107 +1,428 @@
-// Package weather is a Widget that reads current conditions from Open-Meteo
-// (free, no API key). Output looks like `68° partly cloudy`.
+// Package weather fetches current conditions from Open-Meteo and emits a
+// pipe-separated "<temp>°|<outlook>|<hazard>" string for the weather
+// scene. Three sources are merged in parallel:
+//
+//   - Open-Meteo /forecast for temperature + WMO weather code,
+//   - Open-Meteo /air-quality for PM2.5 + US AQI (overrides outlook to
+//     "smoke" when air quality is hazardous),
+//   - api.weather.gov /alerts/active for active NWS hazards at the
+//     configured point (overrides outlook to "hazard" when present;
+//     non-US locations 4xx silently and are treated as "no alerts").
 package weather
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
-	"net/url"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 )
 
-// Client fetches current weather for a fixed lat/lon. Reuses one HTTP
-// client across calls.
+// Client hits Open-Meteo's current-weather endpoint for a fixed location.
+// One http.Client with a 10s timeout is reused across Fetch calls.
 type Client struct {
-	Lat, Lon string
-	HTTP     *http.Client
+	lat, lon string
+	http     *http.Client
+
+	// Climate-normals cache. LoadThresholds populates these on first call
+	// (guarded by thresholdOnce) and returns the cached values on
+	// subsequent calls.
+	thresholdOnce sync.Once
+	coldBound     int
+	hotBound      int
+	thresholdErr  error
 }
 
-// New builds a client. Lat/Lon are passed as strings so the caller can
-// hand off env-var values without re-parsing.
+// Lat / Lon expose the configured coordinates so callers (e.g. the
+// daemon's startup logger) can report the location actually in use
+// without keeping a parallel copy.
+func (c *Client) Lat() string { return c.lat }
+func (c *Client) Lon() string { return c.lon }
+
+// New returns a weather client for the given coordinates. Coordinates are
+// strings so callers can pass them straight from config without going
+// through float parsing on our side.
 func New(lat, lon string) *Client {
 	return &Client{
-		Lat:  lat,
-		Lon:  lon,
-		HTTP: &http.Client{Timeout: 10 * time.Second},
+		lat:  lat,
+		lon:  lon,
+		http: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
 func (c *Client) Name() string { return "weather" }
 
-type response struct {
+// User-Agent for NWS api.weather.gov. They require a contact-bearing UA
+// and 403 anonymous traffic.
+const nwsUserAgent = "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)"
+
+// PM2.5 and US AQI thresholds above which we override the outlook to
+// "smoke". The US AQI threshold (>150) matches the EPA "Unhealthy" band;
+// the PM2.5 threshold (>35 µg/m³) matches the EPA 24-hour fine-particulate
+// standard.
+const (
+	smokePM25Threshold = 35.0
+	smokeAQIThreshold  = 150
+)
+
+// hazardHeadlineMaxLen caps the alert headline length so it fits the
+// device's body element. Truncation adds an ellipsis.
+const hazardHeadlineMaxLen = 50
+
+// currentWeatherResponse is the slice of the Open-Meteo /forecast JSON we
+// care about — just the current_weather block. Open-Meteo's "weathercode"
+// follows the WMO weather interpretation table.
+type currentWeatherResponse struct {
+	CurrentWeather struct {
+		Temperature float64 `json:"temperature"`
+		WeatherCode int     `json:"weathercode"`
+	} `json:"current_weather"`
+}
+
+type airQualityResponse struct {
 	Current struct {
-		Temperature2m       float64 `json:"temperature_2m"`
-		ApparentTemperature float64 `json:"apparent_temperature"`
-		WeatherCode         int     `json:"weather_code"`
+		PM25  float64 `json:"pm2_5"`
+		USAQI float64 `json:"us_aqi"`
 	} `json:"current"`
 }
 
-// Fetch hits Open-Meteo and returns a one-line summary.
-func (c *Client) Fetch(ctx context.Context) (string, error) {
-	u, err := url.Parse("https://api.open-meteo.com/v1/forecast")
-	if err != nil {
-		return "", err
-	}
-	q := u.Query()
-	q.Set("latitude", c.Lat)
-	q.Set("longitude", c.Lon)
-	q.Set("current", "temperature_2m,weather_code,apparent_temperature")
-	q.Set("temperature_unit", "fahrenheit")
-	u.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("open-meteo: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("open-meteo http %d", resp.StatusCode)
-	}
-
-	var body response
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return "", fmt.Errorf("decode: %w", err)
-	}
-
-	return fmt.Sprintf("%d° %s",
-		int(body.Current.Temperature2m+0.5),
-		describeWMO(body.Current.WeatherCode),
-	), nil
+type nwsAlertsResponse struct {
+	Features []struct {
+		Properties struct {
+			Event    string `json:"event"`
+			Severity string `json:"severity"`
+		} `json:"properties"`
+	} `json:"features"`
 }
 
-// describeWMO turns Open-Meteo's WMO weather code into a short label.
-// Reference: https://open-meteo.com/en/docs#api_form (WMO Weather interpretation codes).
-func describeWMO(code int) string {
-	switch {
-	case code == 0:
-		return "clear"
-	case code == 1:
-		return "mostly clear"
-	case code == 2:
-		return "partly cloudy"
-	case code == 3:
-		return "overcast"
-	case code == 45 || code == 48:
-		return "fog"
-	case code >= 51 && code <= 57:
-		return "drizzle"
-	case code >= 61 && code <= 67:
-		return "rain"
-	case code >= 71 && code <= 77:
-		return "snow"
-	case code >= 80 && code <= 82:
-		return "rain showers"
-	case code >= 85 && code <= 86:
-		return "snow showers"
-	case code >= 95:
-		return "thunderstorm"
-	default:
-		return "—"
+// Fetch returns a pipe-separated "<temp>°|<outlook>|<hazard>" string.
+// The hazard segment is empty unless an NWS alert is active for the
+// configured point.
+func (c *Client) Fetch(ctx context.Context) (string, error) {
+	var (
+		wg      sync.WaitGroup
+		fcResp  currentWeatherResponse
+		fcErr   error
+		aqResp  airQualityResponse
+		aqErr   error
+		nwsResp nwsAlertsResponse
+	)
+
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		fcErr = c.fetchForecast(ctx, &fcResp)
+	}()
+	go func() {
+		defer wg.Done()
+		aqErr = c.fetchAirQuality(ctx, &aqResp)
+	}()
+	go func() {
+		defer wg.Done()
+		// NWS errors (incl. 4xx for non-US points) are swallowed by
+		// fetchAlerts; an empty features list means "no alerts".
+		c.fetchAlerts(ctx, &nwsResp)
+	}()
+	wg.Wait()
+
+	if fcErr != nil {
+		return "", fcErr
 	}
+
+	temp := int(math.Round(fcResp.CurrentWeather.Temperature))
+	outlook := OutlookFromCode(fcResp.CurrentWeather.WeatherCode)
+	hazardMsg := ""
+
+	// NWS takes top precedence — an active warning trumps both the
+	// air-quality smoke override and the WMO code's outlook.
+	if alert := mostSevereAlert(nwsResp.Features); alert != "" {
+		outlook = "hazard"
+		hazardMsg = truncateHeadline(alert, hazardHeadlineMaxLen)
+	} else if aqErr == nil && isSmoke(aqResp.Current.PM25, aqResp.Current.USAQI) {
+		outlook = "smoke"
+	}
+
+	return fmt.Sprintf("%d°|%s|%s", temp, outlook, hazardMsg), nil
+}
+
+func (c *Client) fetchForecast(ctx context.Context, out *currentWeatherResponse) error {
+	url := fmt.Sprintf(
+		"https://api.open-meteo.com/v1/forecast"+
+			"?latitude=%s&longitude=%s"+
+			"&current_weather=true&temperature_unit=fahrenheit&timezone=auto",
+		c.lat, c.lon,
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("weather: build request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("weather: http: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("weather: http %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("weather: decode: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) fetchAirQuality(ctx context.Context, out *airQualityResponse) error {
+	url := fmt.Sprintf(
+		"https://air-quality-api.open-meteo.com/v1/air-quality"+
+			"?latitude=%s&longitude=%s&current=pm2_5,us_aqi",
+		c.lat, c.lon,
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("weather: build aq request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("weather: aq http: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("weather: aq http %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("weather: aq decode: %w", err)
+	}
+	return nil
+}
+
+// fetchAlerts queries NWS for active alerts at the configured point.
+// Errors (network, 4xx for non-US points, parse) are intentionally
+// swallowed — the alerts feed is best-effort context; a failure here
+// must not block the forecast. On any failure `out` is left zero
+// (empty Features), which downstream code reads as "no alerts".
+func (c *Client) fetchAlerts(ctx context.Context, out *nwsAlertsResponse) {
+	url := fmt.Sprintf(
+		"https://api.weather.gov/alerts/active?point=%s,%s",
+		c.lat, c.lon,
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("User-Agent", nwsUserAgent)
+	req.Header.Set("Accept", "application/geo+json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	_ = json.NewDecoder(resp.Body).Decode(out)
+}
+
+// isSmoke reports whether the air-quality readings cross either of the
+// "smoky outdoors" thresholds (PM2.5 > 35 µg/m³ or US AQI > 150).
+func isSmoke(pm25 float64, usAQI float64) bool {
+	return pm25 > smokePM25Threshold || int(usAQI+0.5) > smokeAQIThreshold
+}
+
+// severityRank orders NWS alert severity strings so we can pick the
+// "most severe" feature in a multi-alert response. Unknown / missing
+// severities sort to the bottom.
+func severityRank(s string) int {
+	switch s {
+	case "Extreme":
+		return 4
+	case "Severe":
+		return 3
+	case "Moderate":
+		return 2
+	case "Minor":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// mostSevereAlert returns the Event string of the highest-ranked alert
+// in features, or "" if the slice is empty. Ties (equal severity) keep
+// the first-encountered alert — NWS returns them in issuance order.
+func mostSevereAlert(features []struct {
+	Properties struct {
+		Event    string `json:"event"`
+		Severity string `json:"severity"`
+	} `json:"properties"`
+}) string {
+	bestEvent := ""
+	bestRank := -1
+	for _, f := range features {
+		r := severityRank(f.Properties.Severity)
+		if r > bestRank && f.Properties.Event != "" {
+			bestRank = r
+			bestEvent = f.Properties.Event
+		}
+	}
+	return bestEvent
+}
+
+// truncateHeadline shortens s to at most max characters, adding a single
+// trailing ellipsis when truncation actually happens. Whitespace at the
+// truncation boundary is trimmed so the ellipsis doesn't sit after a
+// dangling space.
+func truncateHeadline(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	cut := strings.TrimRightFunc(s[:max-1], unicodeIsSpaceOrPunct)
+	return cut + "…"
+}
+
+func unicodeIsSpaceOrPunct(r rune) bool {
+	switch r {
+	case ' ', '\t', ',', ';', ':', '-':
+		return true
+	}
+	return false
+}
+
+// OutlookFromCode buckets a WMO weather code into one of eight outlook
+// strings. The buckets are deliberately coarse — the scene only needs
+// enough resolution to pick an icon, a colour, and a label word.
+//
+// WMO code ranges (per Open-Meteo docs):
+//
+//	0          clear sky
+//	1, 2       mainly clear, partly cloudy
+//	3          overcast
+//	45, 48     fog, depositing rime fog
+//	51, 53, 55 drizzle
+//	56, 57     freezing drizzle
+//	61, 63, 65 rain
+//	66, 67     freezing rain
+//	71, 73, 75 snow fall
+//	77         snow grains
+//	80, 81, 82 rain showers
+//	85, 86     snow showers
+//	95         thunderstorm
+//	96, 99     thunderstorm with hail
+func OutlookFromCode(code int) string {
+	switch code {
+	case 0:
+		return "clear"
+	case 1, 2:
+		return "cloudy"
+	case 3:
+		return "overcast"
+	case 45, 48:
+		return "fog"
+	case 51, 53, 55, 56, 57:
+		return "drizzle"
+	case 61, 63, 65, 66, 67, 80, 81, 82:
+		return "rain"
+	case 71, 73, 75, 77, 85, 86:
+		return "snow"
+	case 95, 96, 99:
+		return "thunder"
+	default:
+		return "cloudy"
+	}
+}
+
+// archiveResponse is the slice of Open-Meteo's /v1/archive JSON we use
+// for climate-normals fitting. Both arrays are parallel daily series.
+type archiveResponse struct {
+	Daily struct {
+		Time []string  `json:"time"`
+		Max  []float64 `json:"temperature_2m_max"`
+		Min  []float64 `json:"temperature_2m_min"`
+	} `json:"daily"`
+}
+
+// LoadThresholds fetches 5 years of historical daily highs/lows from
+// Open-Meteo's archive API and returns (coldBound, hotBound) where:
+//
+//	coldBound = 15th-percentile of daily LOWS  (rounded to nearest int)
+//	hotBound  = 85th-percentile of daily HIGHS (rounded to nearest int)
+//
+// Both in °F. Results are cached internally; second and later calls
+// return the cached values immediately without re-fetching.
+//
+// To keep the comfort band (68-75°F, fixed in the caller) non-empty,
+// coldBound is clamped to <= 67 and hotBound to >= 76 so the
+// aqua/yellow/orange/red bands always have at least one degree each.
+//
+// Returns an error on network / parse / empty-sample failure. The
+// caller is expected to log and fall back to static defaults.
+func (c *Client) LoadThresholds(ctx context.Context) (cold, hot int, err error) {
+	c.thresholdOnce.Do(func() {
+		c.coldBound, c.hotBound, c.thresholdErr = c.fetchThresholds(ctx)
+	})
+	return c.coldBound, c.hotBound, c.thresholdErr
+}
+
+func (c *Client) fetchThresholds(ctx context.Context) (cold, hot int, err error) {
+	// The archive API trails real time by ~5 days; "yesterday" is the
+	// safe upper bound. 5 years back gives ~1825 samples, enough for a
+	// stable 15th/85th percentile.
+	end := time.Now().AddDate(0, 0, -1)
+	start := end.AddDate(-5, 0, 0)
+	url := fmt.Sprintf(
+		"https://archive-api.open-meteo.com/v1/archive"+
+			"?latitude=%s&longitude=%s"+
+			"&start_date=%s&end_date=%s"+
+			"&daily=temperature_2m_max,temperature_2m_min"+
+			"&temperature_unit=fahrenheit&timezone=auto",
+		c.lat, c.lon,
+		start.Format("2006-01-02"),
+		end.Format("2006-01-02"),
+	)
+
+	// Archive responses over 5 years can be slow — give it a generous
+	// budget, separate from c.http's short Fetch timeout.
+	httpCli := &http.Client{Timeout: 60 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("weather: build archive request: %w", err)
+	}
+	resp, err := httpCli.Do(req)
+	if err != nil {
+		return 0, 0, fmt.Errorf("weather: archive http: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, 0, fmt.Errorf("weather: archive http %d", resp.StatusCode)
+	}
+	var body archiveResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return 0, 0, fmt.Errorf("weather: archive decode: %w", err)
+	}
+	if len(body.Daily.Max) == 0 || len(body.Daily.Min) == 0 {
+		return 0, 0, fmt.Errorf("weather: archive returned empty daily series")
+	}
+
+	highs := append([]float64(nil), body.Daily.Max...)
+	lows := append([]float64(nil), body.Daily.Min...)
+	sort.Float64s(highs)
+	sort.Float64s(lows)
+
+	cold = int(math.Round(lows[int(float64(len(lows))*0.15)]))
+	hot = int(math.Round(highs[int(float64(len(highs))*0.85)]))
+
+	// Clamp so the fixed 68-75°F comfort band always has room above
+	// (yellow) and below (aqua) it.
+	if cold >= 68 {
+		cold = 67
+	}
+	if hot <= 75 {
+		hot = 76
+	}
+	return cold, hot, nil
 }

@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -32,25 +32,48 @@ func runDisplay(ctx context.Context, args []string) error {
 	}
 }
 
-// runDisplayLines installs a single Text element on a known background with
-// a synthesized multi-line message, holds 60s, then exits. Used to probe
-// how the device's Text rendering handles tall blocks — does it cap, wrap,
-// scroll vertically, etc.
+// runDisplayLines installs one or more stacked Text elements filled with
+// numbered "L1 / L2 / L3 …" wrapped content, then holds for 60s. Used to
+// probe the device's Text-rendering behaviour: at what line count does a
+// single tall element stop rendering, and does splitting across multiple
+// stacked elements work around the cap.
 //
-// Usage: `divoom display lines [n]` (default n=8)
+// Usage:
+//
+//	divoom display lines [-n N] [-font N] [-blocks N] [-starty Y] [-height H]
+//
+// Defaults aim to match the whimsy/quote layout so results transfer.
 func runDisplayLines(ctx context.Context, args []string) error {
-	n := 8
-	if len(args) > 0 {
-		v, err := strconv.Atoi(args[0])
-		if err != nil {
-			return fmt.Errorf("lines: bad count %q: %w", args[0], err)
-		}
-		n = v
+	fs := flag.NewFlagSet("lines", flag.ContinueOnError)
+	n := fs.Int("n", 20, "total numbered markers to spread across all blocks")
+	font := fs.Int("font", 34, "FontSize for every text block")
+	blocks := fs.Int("blocks", 1, "how many stacked Text elements to split content across")
+	startY := fs.Int("starty", 480, "Y coordinate of the topmost block")
+	totalH := fs.Int("height", 760, "total vertical area to distribute across blocks (px)")
+	firstID := fs.Int("firstid", 10, "first Text-element ID (subsequent blocks use firstid+1, +2, …)")
+	noReset := fs.Bool("no-reset", false, "skip the pre-Exit; reuse cached element state on the device")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *blocks < 1 || *blocks > 6 {
+		return fmt.Errorf("lines: blocks must be 1..6 (got %d)", *blocks)
 	}
 
 	client, _, err := connectToFrame(ctx)
 	if err != nil {
 		return err
+	}
+
+	// Reset the device's per-ID cache before installing the probe layout.
+	// Without this, the device appears to keep an element's FontSize /
+	// Height from the previous install whenever an ID is reused — only
+	// TextMessage updates reliably between EnterCustomMode calls.
+	if !*noReset {
+		exitCtx, ec := context.WithTimeout(ctx, 5*time.Second)
+		if err := client.ExitCustomMode(exitCtx); err != nil {
+			slog.Warn("pre-exit failed (continuing anyway)", "err", err)
+		}
+		ec()
 	}
 
 	bgBytes, err := render.HeroBackground(render.FormatJPEG, time.Now())
@@ -73,38 +96,42 @@ func runDisplayLines(ctx context.Context, args []string) error {
 	}
 	pcancel()
 
-	// Generate n markers, each padded so the device MUST wrap onto multiple
-	// lines. Without padding, "L1 / L2 / L3" all fits on one line and
-	// doesn't probe wrap/scroll behavior at all.
-	const filler = " padding padding padding padding"
-	var sb strings.Builder
-	for i := 1; i <= n; i++ {
-		if i > 1 {
-			sb.WriteString(" / ")
-		}
-		fmt.Fprintf(&sb, "L%d", i)
-		sb.WriteString(filler)
-	}
-	msg := sb.String()
-	slog.Info("test message", "lines_target", n, "chars", len(msg), "raw", msg)
+	// Distribute n markers evenly across the requested number of blocks.
+	// Each block gets its own contiguous range so the line numbers stay
+	// in reading order even after the device wraps them.
+	perBlock := (*n + *blocks - 1) / *blocks
+	blockH := *totalH / *blocks
 
-	// Generous geometry: full bottom area, big enough to plausibly hold
-	// 10+ lines at FontSize 26. If the device caps, we'll see it.
+	disp := make([]frame.DispElement, 0, *blocks)
+	for b := 0; b < *blocks; b++ {
+		first := b*perBlock + 1
+		last := first + perBlock - 1
+		if last > *n {
+			last = *n
+		}
+		if first > *n {
+			break
+		}
+		msg := lineMarkers(first, last)
+		id := *firstID + b
+		disp = append(disp, frame.DispElement{
+			ID: id, Type: "Text",
+			StartX: 20, StartY: *startY + b*blockH, Width: 760, Height: blockH,
+			Align:       2,
+			FontSize:    *font,
+			FontID:      52,
+			FontColor:   "#ebdbb2",
+			BgColor:     "#1d2021",
+			TextMessage: msg,
+		})
+		slog.Info("block", "id", id, "first", first, "last", last,
+			"starty", *startY+b*blockH, "height", blockH, "chars", len(msg))
+	}
+
 	layout := frame.CustomMode{
 		BackgroundImageLocalFlag: 1,
 		BackgroundImageAddr:      bgPath,
-		DispList: []frame.DispElement{
-			{
-				ID: 10, Type: "Text",
-				StartX: 20, StartY: 500, Width: 760, Height: 720,
-				Align:       2,
-				FontSize:    26,
-				FontID:      52,
-				FontColor:   "#ebdbb2",
-				BgColor:     "#1d2021",
-				TextMessage: msg,
-			},
-		},
+		DispList:                 disp,
 	}
 
 	enterCtx, ecancel := context.WithTimeout(ctx, 10*time.Second)
@@ -113,8 +140,8 @@ func runDisplayLines(ctx context.Context, args []string) error {
 		return fmt.Errorf("EnterCustomControlMode: %w", err)
 	}
 	ecancel()
-	slog.Info("layout installed — watch the wall",
-		"start_y", 500, "height", 720, "font_size", 26, "lines_requested", n)
+	slog.Info("layout installed — note the highest LN visible in each block",
+		"n", *n, "blocks", *blocks, "font", *font, "starty", *startY, "block_height", blockH)
 
 	const hold = 60 * time.Second
 	slog.Info("holding — Ctrl+C to exit early", "hold", hold)
@@ -123,6 +150,22 @@ func runDisplayLines(ctx context.Context, args []string) error {
 	case <-ctx.Done():
 	}
 	return nil
+}
+
+// lineMarkers builds "L<first> padding… / L<first+1> padding… / …" so the
+// device's text wrapper has enough text to fill many lines but each line
+// still starts with a visible marker.
+func lineMarkers(first, last int) string {
+	const filler = " padding padding padding padding"
+	var sb strings.Builder
+	for i := first; i <= last; i++ {
+		if sb.Len() > 0 {
+			sb.WriteString(" / ")
+		}
+		fmt.Fprintf(&sb, "L%d", i)
+		sb.WriteString(filler)
+	}
+	return sb.String()
 }
 
 // runDisplayTicker proves the dynamic-text channel end-to-end:
