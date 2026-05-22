@@ -17,11 +17,11 @@ PORTAINER_STACK_ID   ?= $(shell cat $(HOME)/.config/divoom/portainer-stack-id 2>
 all: build push deploy
 
 build:
-	docker build -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
+	podman build -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
 
 push:
-	docker push $(IMAGE):$(VERSION)
-	docker push $(IMAGE):latest
+	podman push $(IMAGE):$(VERSION)
+	podman push $(IMAGE):latest
 
 # Editor-style stack update. Portainer CE has no webhook / git redeploy worth
 # trusting, so we PUT the compose contents straight at:

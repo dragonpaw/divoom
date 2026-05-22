@@ -15,7 +15,7 @@ compose contents on every deploy.
    `read:packages`, then:
 
    ```
-   echo "$GHCR_PAT" | docker login ghcr.io -u <github-user> --password-stdin
+   echo "$GHCR_PAT" | podman login ghcr.io -u <github-user> --password-stdin
    ```
 
 2. **Portainer API key.** In the Portainer UI, *My account* →
@@ -62,8 +62,8 @@ make deploy
 
 That runs `build` → `push` → `deploy`:
 
-1. `docker build` tagged with both `:latest` and `:$(git describe)`.
-2. `docker push` of both tags to GHCR.
+1. `podman build` tagged with both `:latest` and `:$(git describe)`.
+2. `podman push` of both tags to GHCR.
 3. `PUT $PORTAINER_URL/api/stacks/$STACK_ID?endpointId=1` with the
    current `docker-compose.yml` contents and `.env` values. `pullImage:
    true` forces Portainer to pull the new `:latest` before recreating
