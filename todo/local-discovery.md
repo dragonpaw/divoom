@@ -112,3 +112,26 @@ whether to skip it permanently.
   picked.
 - Block egress to `app.divoom-gz.com` (e.g. `/etc/hosts` override)
   and confirm startup still succeeds end-to-end.
+
+## Status (2026-05-22)
+
+Implemented approach **#1** only, per CLAUDE.md (ship the smallest thing
+that works; add the rest when there's evidence #1 isn't enough):
+
+- `connectToFrame` in `cmd/divoom/display.go` now probes
+  `$DIVOOM_FRAME_IP` with `Channel/GetClockInfo` before trusting it. A
+  set-but-unreachable IP logs a warning and falls through to cloud
+  discovery.
+- Cloud-failure error now tells the user to set `DIVOOM_FRAME_IP=<ip>`
+  to skip the cloud lookup entirely.
+- Added `TestProbeFrameIP_DeadAddressFailsFast` to confirm the probe
+  actually runs (no blind trust of the env var).
+
+Deferred (still listed above; revisit if/when #1 proves insufficient):
+
+- **#2** adb-over-network probe — would need `android-tools` on the NAS
+  and an adb-server side-channel. Not justified until we hit a case
+  where the static IP changes and cloud is also down.
+- **#3** ARP scan + port-9000 canary.
+- **#4** MAC OUI filter.
+- **#5** mDNS / SSDP probe.
