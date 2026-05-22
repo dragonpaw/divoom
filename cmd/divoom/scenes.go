@@ -61,6 +61,9 @@ const (
 	bgGitHub     = "/userdata/wallclock_bg_github.jpg"
 	bgTIL        = "/userdata/wallclock_bg_til.jpg"
 	bgWordnik    = "/userdata/wallclock_bg_wordnik.jpg"
+	bgStoics     = "/userdata/wallclock_bg_stoics.jpg"
+	bgTwain      = "/userdata/wallclock_bg_twain.jpg"
+	bgFortune    = "/userdata/wallclock_bg_fortune.jpg"
 
 	// One bg per weather outlook so the icon in the bottom-right corner
 	// matches the current condition. Selected at activation time via
@@ -432,6 +435,39 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 			Name: "wordnik", Title: "Word of the Day", Weight: 20, BgPath: bgWordnik,
 			Widget:  widgets["wordnik"],
 			Tagline: "wordnik.com",
+		}),
+
+		// "Stoics" — Marcus Aurelius / Seneca / Epictetus aphorisms.
+		// Green tagline picks up the laurel/marble association without
+		// stepping on Discworld's orange or B5's purple.
+		QuoteScene(QuoteSceneOpts{
+			Name: "stoics", Title: "Stoics", Weight: 20, BgPath: bgStoics,
+			Widget:       widgets["stoics"],
+			Tagline:      "memento mori",
+			TaglineColor: cGreen,
+			HasAuthor:    true,
+		}),
+
+		// "Mark Twain" — public-domain American aphorisms. fg accent
+		// keeps the typography newsprint-plain.
+		QuoteScene(QuoteSceneOpts{
+			Name: "twain", Title: "Mark Twain", Weight: 20, BgPath: bgTwain,
+			Widget:       widgets["twain"],
+			Tagline:      "Samuel L. Clemens",
+			TaglineColor: cFg,
+			HasAuthor:    false,
+		}),
+
+		// "Fortune" — BSD fortune(1) cookies. Most entries are anonymous
+		// but those with `-- Author` lines carry attribution inline via
+		// the standard splitAuthor convention; HasAuthor wires the
+		// author slot so attributed cookies surface their source.
+		QuoteScene(QuoteSceneOpts{
+			Name: "fortune", Title: "fortune", Weight: 20, BgPath: bgFortune,
+			Widget:       widgets["fortune"],
+			Tagline:      "a fortune cookie awaits",
+			TaglineColor: cAqua,
+			HasAuthor:    true,
 		}),
 
 		// "Devil's Dictionary" — Ambrose Bierce, 1906. Dictionary-shaped

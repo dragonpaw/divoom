@@ -1,0 +1,56 @@
+package quotes
+
+// NewTwain returns a Source of well-known one-liners from Mark Twain
+// (Samuel Clemens). Public domain; sourced from *The Wit and Humor of
+// America*, *Following the Equator*, *Pudd'nhead Wilson*, *Notebooks*,
+// and his published letters. Hand-curated to favour the short
+// aphorisms the device's narrow body column can render cleanly.
+func NewTwain() *Source { return newAuthoredSource("Mark Twain", "Mark Twain", twain) }
+
+var twain = []string{
+	"The two most important days in your life are the day you are born and the day you find out why.",
+	"Whenever you find yourself on the side of the majority, it is time to pause and reflect.",
+	"Get your facts first, then you can distort them as you please.",
+	"The man who does not read has no advantage over the man who cannot read.",
+	"Kindness is the language which the deaf can hear and the blind can see.",
+	"It is better to keep your mouth closed and let people think you are a fool than to open it and remove all doubt.",
+	"If you tell the truth, you don't have to remember anything.",
+	"Truth is stranger than fiction, but it is because Fiction is obliged to stick to possibilities; Truth isn't.",
+	"Never put off till tomorrow what may be done day after tomorrow just as well.",
+	"Age is an issue of mind over matter. If you don't mind, it doesn't matter.",
+	"Good friends, good books, and a sleepy conscience: this is the ideal life.",
+	"Continuous improvement is better than delayed perfection.",
+	"Courage is resistance to fear, mastery of fear — not absence of fear.",
+	"Don't go around saying the world owes you a living. The world owes you nothing. It was here first.",
+	"Travel is fatal to prejudice, bigotry, and narrow-mindedness.",
+	"A lie can travel half way around the world while the truth is putting on its shoes.",
+	"Twenty years from now you will be more disappointed by the things that you didn't do than by the ones you did do.",
+	"Education consists mainly of what we have unlearned.",
+	"All you need is ignorance and confidence and the success is sure.",
+	"The secret of getting ahead is getting started.",
+	"Always do right. This will gratify some people and astonish the rest.",
+	"The lack of money is the root of all evil.",
+	"Wrinkles should merely indicate where the smiles have been.",
+	"I have never let my schooling interfere with my education.",
+	"The fear of death follows from the fear of life. A man who lives fully is prepared to die at any time.",
+	"To succeed in life, you need two things: ignorance and confidence.",
+	"Comparison is the death of joy.",
+	"Action speaks louder than words but not nearly as often.",
+	"Patriotism is supporting your country all the time, and your government when it deserves it.",
+	"Climate is what we expect, weather is what we get.",
+	"Forgiveness is the fragrance that the violet sheds on the heel that has crushed it.",
+	"There are only two types of speakers in the world. The nervous and the liars.",
+	"Don't part with your illusions. When they are gone you may still exist, but you have ceased to live.",
+	"The trouble with the world is not that people know too little, but that they know so many things that ain't so.",
+	"Honesty is the best policy — when there is money in it.",
+	"Reader, suppose you were an idiot. And suppose you were a member of Congress. But I repeat myself.",
+	"Loyalty to country always. Loyalty to government, when it deserves it.",
+	"Suppose you were an idiot, and suppose you were a member of Congress; but I repeat myself.",
+	"It's not the size of the dog in the fight, it's the size of the fight in the dog.",
+	"Whenever you find yourself in the majority, pause and reflect.",
+	"Be careful about reading health books. You may die of a misprint.",
+	"The worst loneliness is to not be comfortable with yourself.",
+	"Substitute 'damn' every time you're inclined to write 'very'; your editor will delete it and the writing will be just as it should be.",
+	"Apparently there is nothing that cannot happen today.",
+	"Civilization is the limitless multiplication of unnecessary necessities.",
+}

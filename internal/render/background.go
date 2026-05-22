@@ -98,6 +98,9 @@ const (
 	SceneGitHub
 	SceneTIL
 	SceneWordnik
+	SceneStoics
+	SceneTwain
+	SceneFortune
 )
 
 // SceneBackground builds the hero frame and draws the scene's glyph into
@@ -559,6 +562,74 @@ func drawSceneGlyph(img *image.RGBA, scene Scene) {
 			image.Rect(cx-antennaW/2, antennaTop, cx+antennaW/2, cy-bodyHalfH),
 			&image.Uniform{c}, image.Point{}, draw.Src)
 		fillCircle(img, cx, antennaTop, antennaTipR, c)
+
+	case SceneStoics:
+		// Greek column: square capital + plinth at the top, fluted shaft
+		// below, square plinth at the base. Three stacked rectangles
+		// roughly proportioned 1 : 4 : 1 in height so the silhouette
+		// reads as a classical pillar.
+		const (
+			capW   = 110 // top capital / base block width
+			capH   = 22
+			shaftW = 80
+			shaftH = 180
+		)
+		// Capital (top).
+		draw.Draw(img,
+			image.Rect(cx-capW/2, cy-shaftH/2-capH, cx+capW/2, cy-shaftH/2),
+			&image.Uniform{c}, image.Point{}, draw.Src)
+		// Shaft.
+		draw.Draw(img,
+			image.Rect(cx-shaftW/2, cy-shaftH/2, cx+shaftW/2, cy+shaftH/2),
+			&image.Uniform{c}, image.Point{}, draw.Src)
+		// Base (bottom).
+		draw.Draw(img,
+			image.Rect(cx-capW/2, cy+shaftH/2, cx+capW/2, cy+shaftH/2+capH),
+			&image.Uniform{c}, image.Point{}, draw.Src)
+
+	case SceneTwain:
+		// Slanted quill pen: a long thin parallelogram running from
+		// lower-left to upper-right with a narrowing nib at the bottom
+		// end. Built as a single closed polygon with the lower vertices
+		// pinched together so the writing tip reads as a point.
+		const (
+			thick    = 26  // pen body thickness
+			nibInset = 14  // how far the nib end narrows in
+			diagX    = 130 // horizontal extent of the diagonal
+			diagY    = 150 // vertical extent of the diagonal
+		)
+		// Anchor: the nib at the lower-left, feather end at upper-right.
+		nibX, nibY := cx-diagX/2, cy+diagY/2
+		topX, topY := cx+diagX/2, cy-diagY/2
+		fillPolygon(img, []struct{ x, y int }{
+			{nibX, nibY},                       // nib point
+			{nibX + nibInset, nibY - thick/2},  // nib upper shoulder
+			{topX, topY - thick/2},             // feather end, top
+			{topX + thick/2, topY},             // feather end, side
+			{nibX + nibInset + thick/2, nibY},  // back to lower edge
+		}, c)
+
+	case SceneFortune:
+		// Fortune cookie: an asymmetric folded crescent. Two overlapping
+		// ellipses (one bigger, one carved away in bg-hard) leave a
+		// curved sliver that reads as the folded biscuit silhouette,
+		// with a tiny rectangular "paper" tab poking out of the cleft.
+		const (
+			outerRX = 130
+			outerRY = 90
+			carveDX = 50
+			carveDY = -10
+			carveRX = 120
+			carveRY = 80
+			paperW  = 70
+			paperH  = 8
+		)
+		fillEgg(img, cx, cy, outerRX, outerRY, outerRY, c)
+		fillEgg(img, cx+carveDX, cy+carveDY, carveRX, carveRY, carveRY, GruvBgHard)
+		// Paper slip sticking out of the cleft on the right.
+		draw.Draw(img,
+			image.Rect(cx+outerRX-paperW/2, cy-paperH/2, cx+outerRX+paperW/2, cy+paperH/2),
+			&image.Uniform{c}, image.Point{}, draw.Src)
 
 	case SceneOnThisDay:
 		// Analog clock face — the "this moment in history" motif. Built
