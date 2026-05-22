@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,9 +17,9 @@ import (
 // Each scene's layout is its own install, so re-using IDs across scenes is
 // fine; we keep the IDs distinct only within a single scene.
 const (
-	idDay  = 1
-	idTime = 2
-	idDate = 3
+	idDay    = 1
+	idTime   = 2
+	idFooter = 3
 
 	idSceneTitle = 9
 	idSceneMain  = 10
@@ -127,9 +128,10 @@ const (
 )
 
 // Vertical layout (800x1280 portrait):
-//   y=20-100    Day of week (Text, color picked from weekday)
-//   y=120-340   Time (huge, color picked from AM vs PM)
-//   y=370-430   Date (built-in, fg-dark)
+//   y=30-110    "> dayname" prompt (Text, dayColor, fontMono)
+//   y=140-340   Time (huge, solid fg, fontMono)
+//   y=380-382   Morse-pattern rule (rendered into bg)
+//   y=400-444   Operator footer: "YYYY-MM-DD  doy:N  w:N  weekend+Nd"
 //   y=460-462   Hairline divider (rendered into bg)
 //   y=480-1240  Scene-specific content
 //   y=1268-1272 Year-progress bar (rendered into bg)
@@ -146,45 +148,61 @@ var dayColors = map[time.Weekday]string{
 	time.Saturday:  cBlue,
 }
 
-// timeColor returns the AM/PM accent for the clock — cAqua mornings,
-// cOrange afternoons/evenings — so the clock reads warm or cool at a
-// glance.
-func timeColor(now time.Time) string {
-	if now.Hour() < 12 {
-		return cAqua
+// isoWeek returns the ISO 8601 week number for now (the second value of
+// time.Time.ISOWeek).
+func isoWeek(now time.Time) int {
+	_, w := now.ISOWeek()
+	return w
+}
+
+// daysUntilWeekend returns the operator-footer countdown string. Mon-Fri
+// render as "weekend+Nd" (Mon=4, Tue=3, ..., Fri=0); Sat/Sun render as
+// "weekend".
+func daysUntilWeekend(now time.Time) string {
+	switch now.Weekday() {
+	case time.Saturday, time.Sunday:
+		return "weekend"
+	default:
+		// Monday=1 ... Friday=5; 5 - weekday days until Saturday.
+		n := 5 - int(now.Weekday())
+		return fmt.Sprintf("weekend+%dd", n)
 	}
-	return cOrange
 }
 
 func alwaysOn(now time.Time) []frame.DispElement {
 	return []frame.DispElement{
 		{
 			ID: idDay, Type: "Text",
-			StartX: 50, StartY: 20, Width: 700, Height: 80,
-			Align:       2,
+			StartX: 40, StartY: 30, Width: 720, Height: 80,
+			Align:       0,
 			FontSize:    64,
-			FontID:      fontProse,
+			FontID:      fontMono,
 			FontColor:   dayColors[now.Weekday()],
 			BgColor:     cBgHard,
-			TextMessage: now.Weekday().String(),
+			TextMessage: "> " + strings.ToLower(now.Weekday().String()),
 		},
 		{
 			ID: idTime, Type: "Time",
-			StartX: 50, StartY: 120, Width: 700, Height: 220,
+			StartX: 50, StartY: 140, Width: 700, Height: 200,
 			Align:     2,
-			FontSize:  180,
+			FontSize:  160,
 			FontID:    fontMono,
-			FontColor: timeColor(now),
+			FontColor: cFg,
 			BgColor:   cBgHard,
 		},
 		{
-			ID: idDate, Type: "Date",
-			StartX: 50, StartY: 370, Width: 700, Height: 60,
-			Align:     2,
-			FontSize:  44,
-			FontID:    fontProse,
+			ID: idFooter, Type: "Text",
+			StartX: 40, StartY: 400, Width: 720, Height: 44,
+			Align:     0,
+			FontSize:  28,
+			FontID:    fontMono,
 			FontColor: cFgDark,
 			BgColor:   cBgHard,
+			TextMessage: fmt.Sprintf("%s  doy:%d  w:%d  %s",
+				now.Format("2006-01-02"),
+				now.YearDay(),
+				isoWeek(now),
+				daysUntilWeekend(now)),
 		},
 	}
 }

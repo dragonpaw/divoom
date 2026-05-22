@@ -1,6 +1,45 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+// TestDaysUntilWeekend covers every weekday and both weekend days, so
+// the operator footer never silently drifts when the helper changes.
+func TestDaysUntilWeekend(t *testing.T) {
+	// 2026-05-18 is a Monday → through 2026-05-24 (Sunday).
+	base := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	want := []string{
+		"weekend+4d", // Mon
+		"weekend+3d", // Tue
+		"weekend+2d", // Wed
+		"weekend+1d", // Thu
+		"weekend+0d", // Fri
+		"weekend",    // Sat
+		"weekend",    // Sun
+	}
+	for i, w := range want {
+		d := base.AddDate(0, 0, i)
+		if got := daysUntilWeekend(d); got != w {
+			t.Errorf("daysUntilWeekend(%s = %s) = %q, want %q",
+				d.Format("2006-01-02"), d.Weekday(), got, w)
+		}
+	}
+}
+
+// TestISOWeek pins a couple of known ISO-week values so future tweaks
+// don't accidentally pull the wrong field out of time.Time.ISOWeek.
+func TestISOWeek(t *testing.T) {
+	// 2026-05-22 is in ISO week 21.
+	if got := isoWeek(time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)); got != 21 {
+		t.Errorf("isoWeek(2026-05-22) = %d, want 21", got)
+	}
+	// 2026-01-01 (Thursday) belongs to ISO week 1 of 2026.
+	if got := isoWeek(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); got != 1 {
+		t.Errorf("isoWeek(2026-01-01) = %d, want 1", got)
+	}
+}
 
 // TestWeatherConditionOrHazard: hazard text wins over the outlook word,
 // otherwise the outlook word renders in its outlook colour.
