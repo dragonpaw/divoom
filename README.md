@@ -64,3 +64,8 @@ endpoints we've used, quirks we've hit, and pointers back into Divoom's
 broken-English upstream docs. That file is the source of truth for "how does
 the device actually behave"; update it in the same commit as any change that
 exercises new behavior.
+
+## Deploying
+
+See [`docs/deploy.md`](docs/deploy.md) for the GHCR + Portainer deploy
+workflow (`make deploy` from this checkout).

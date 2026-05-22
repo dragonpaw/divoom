@@ -1,15 +1,20 @@
 services:
-  divoom:
-    build: .
-    image: divoom:dev
-    container_name: divoom
+  divoom-dashboard:
+    image: ghcr.io/dragonpaw/divoom:latest
+    container_name: divoom-dashboard
     restart: unless-stopped
     # Host networking so cloud-discovery sees the same LAN the frame is on,
-    # and so the daemon can later host widget endpoints the frame polls.
+    # and so `adb connect` reaches the device directly.
     network_mode: host
     environment:
-      # Override the Dockerfile default here if your frame changes.
-      # DIVOOM_FRAME_MAC: "4c37deff59df"
-      # DIVOOM_FRAME_IP:  "10.0.2.108"   # optional, skip cloud discovery
-      TZ: America/Los_Angeles
-    command: ["probe"]
+      TZ: ${TZ:-America/Los_Angeles}
+      # Frame targeting. MAC pins discovery; IP skips cloud discovery entirely.
+      DIVOOM_FRAME_MAC: ${DIVOOM_FRAME_MAC:-}
+      DIVOOM_FRAME_IP: ${DIVOOM_FRAME_IP:-}
+      ADB_SERIAL: ${ADB_SERIAL:-}
+      # API keys for the widgets that need them. NASA powers the APOD scene;
+      # GITHUB_USER + GITHUB_TOKEN gate the github-activity scene.
+      NASA_API_KEY: ${NASA_API_KEY:-}
+      GITHUB_USER: ${GITHUB_USER:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    command: ["serve"]
