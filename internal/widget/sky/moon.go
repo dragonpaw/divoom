@@ -26,9 +26,41 @@ const synodicMonthDays = 29.530588853
 var referenceNewMoon = time.Date(2000, 1, 6, 18, 14, 0, 0, time.UTC)
 
 func (m *Moon) Fetch(ctx context.Context) (string, error) {
-	frac, name := phase(time.Now().UTC())
+	now := time.Now().UTC()
+	frac, name := phase(now)
 	illum := illumination(frac)
-	return fmt.Sprintf("moon · %s · %d%%", name, int(illum+0.5)), nil
+	next := nextFullMoonText(frac, now)
+	return fmt.Sprintf("moon · %s · %d%% · %s", name, int(illum+0.5), next), nil
+}
+
+// daysUntilFullMoon returns the time until the next full moon (phase f=0.5),
+// given the current synodic phase fraction f ∈ [0,1). Result is in days
+// and is always strictly positive (when at exactly full moon, it rolls
+// forward to the next cycle).
+func daysUntilFullMoon(f float64) float64 {
+	const fullF = 0.5
+	delta := fullF - f
+	if delta <= 0 {
+		delta += 1
+	}
+	return delta * synodicMonthDays
+}
+
+// nextFullMoonText renders the human-friendly countdown to the next full
+// moon. Within a week, count down in days (or hours when under a day) so
+// the value feels actionable; beyond that, show the calendar date so the
+// reader doesn't have to do arithmetic.
+func nextFullMoonText(f float64, now time.Time) string {
+	days := daysUntilFullMoon(f)
+	if days <= 7 {
+		hours := days * 24
+		if hours < 24 {
+			return fmt.Sprintf("full moon in %d hrs", int(hours+0.5))
+		}
+		return fmt.Sprintf("full moon in %d days", int(days+0.5))
+	}
+	when := now.Add(time.Duration(days * float64(24*time.Hour)))
+	return "next full moon: " + when.Format("Jan 2")
 }
 
 // phase returns the fractional position through the synodic cycle (0 = new,
