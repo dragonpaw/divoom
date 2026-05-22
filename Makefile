@@ -61,9 +61,9 @@ deploy: push
 	    | jq -r --arg n "$(STACK_NAME)" '.[] | select(.Name == $$n) | .Id' | head -1); \
 	tok="$$GHCR_PAT"; [ -z "$$tok" ] && tok="$$GITHUB_TOKEN"; \
 	env_json=$$(jq -n --rawfile envfile $(ENV_FILE) --arg tok "$$tok" \
-	    '$$envfile | split("\n") | map(select(test("^\\s*[^#\\s]") and contains("=")))
-	                            | map(capture("^(?<name>[^=]+)=(?<value>.*)$$"))
-	                            | map(if .name == "GITHUB_TOKEN" and (.value | length) == 0 and ($$tok | length) > 0
+	    '$$envfile | split("\n") | map(select(test("^\\s*[^#\\s]") and contains("="))) \
+	                            | map(capture("^(?<name>[^=]+)=(?<value>.*)$$")) \
+	                            | map(if .name == "GITHUB_TOKEN" and (.value | length) == 0 and ($$tok | length) > 0 \
 	                                  then .value = $$tok else . end)'); \
 	if [ -z "$$stack_id" ]; then \
 	    echo "creating new stack '$(STACK_NAME)'"; \
