@@ -1215,12 +1215,13 @@ func weatherOutlookColor(outlook string) string {
 
 // Weather threshold defaults — overridden once
 // weather.Client.LoadThresholds returns a climate fit for the configured
-// location. The fixed-default values match Bay Area weather (where this
+// location. The Fahrenheit defaults match Bay Area weather (where this
 // dashboard was first calibrated); SetWeatherThresholds replaces them
-// with location-specific 15th/85th percentile bounds.
+// with location-specific 15th/85th percentile bounds in whichever unit
+// the weather client is configured for.
 var (
-	weatherColdBound atomic.Int32 // °F below which temp reads "blue"
-	weatherHotBound  atomic.Int32 // °F at/above which temp reads "orange"
+	weatherColdBound atomic.Int32 // temp below which reading is "blue"
+	weatherHotBound  atomic.Int32 // temp at/above which reading is "orange"
 )
 
 func init() {
@@ -1230,31 +1231,39 @@ func init() {
 
 // SetWeatherThresholds replaces the dynamic cold/hot bounds used by
 // weatherTempColor. Called from serve.go once the weather widget's
-// LoadThresholds fetch completes. The fixed 68-75°F comfort band is
-// unaffected.
+// LoadThresholds fetch completes (or up front with sensible seed
+// values for the configured unit). The fixed comfort band
+// (68-75°F / 20-24°C) is unaffected.
 func SetWeatherThresholds(cold, hot int) {
 	weatherColdBound.Store(int32(cold))
 	weatherHotBound.Store(int32(hot))
 }
 
-// weatherTempColor maps an integer Fahrenheit reading to a gruvbox
+// weatherTempColor maps an integer temperature reading to a gruvbox
 // accent, scaling from cold (blue) through comfortable (green) up to
 // hot (red). The cold and hot bounds are dynamic (auto-calibrated to
 // the configured location's climate via SetWeatherThresholds); the
-// 68-75°F comfort band in the middle is fixed.
-func weatherTempColor(temp int) string {
+// comfort band in the middle is fixed: 68-75°F for "F" or 20-24°C for
+// anything else.
+func weatherTempColor(temp int, unit string) string {
 	cold := int(weatherColdBound.Load())
 	hot := int(weatherHotBound.Load())
+	comfortLo, comfortHi := 68, 75
+	hotOverhead := 5
+	if unit != "F" {
+		comfortLo, comfortHi = 20, 24
+		hotOverhead = 3 // ~5°F in °C
+	}
 	switch {
 	case temp < cold:
 		return cBlue
-	case temp < 68:
+	case temp < comfortLo:
 		return cAqua
-	case temp <= 75:
+	case temp <= comfortHi:
 		return cGreen
 	case temp <= hot:
 		return cYellow
-	case temp <= hot+5:
+	case temp <= hot+hotOverhead:
 		return cOrange
 	default:
 		return cRed
@@ -1269,11 +1278,29 @@ func weatherTemp(raw string) (text, color string) {
 	if weatherOutlookFrom(raw) == "hazard" {
 		return temp, cRed
 	}
-	n, err := strconv.Atoi(strings.TrimSuffix(temp, "°"))
-	if err != nil {
+	// temp looks like "63°F" or "20°C". The unit letter drives the
+	// comfort band; strip it (and the degree sign) before atoi.
+	n, unit, ok := parseWeatherTemp(temp)
+	if !ok {
 		return temp, cFg
 	}
-	return temp, weatherTempColor(n)
+	return temp, weatherTempColor(n, unit)
+}
+
+// parseWeatherTemp pulls the integer reading and the unit letter ("F"
+// or "C") out of a "<n>°<unit>" string. Returns ok=false for any input
+// that doesn't match the shape — callers fall back to the default
+// foreground colour rather than guess.
+func parseWeatherTemp(s string) (n int, unit string, ok bool) {
+	i := strings.Index(s, "°")
+	if i < 0 {
+		return 0, "", false
+	}
+	num, err := strconv.Atoi(s[:i])
+	if err != nil {
+		return 0, "", false
+	}
+	return num, s[i+len("°"):], true
 }
 
 func weatherCondition(raw string) (text, color string) {

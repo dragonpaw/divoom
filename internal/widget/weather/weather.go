@@ -17,6 +17,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +27,12 @@ import (
 // One http.Client with a 10s timeout is reused across Fetch calls.
 type Client struct {
 	lat, lon string
-	http     *http.Client
+	// unit is the Open-Meteo temperature_unit value ("fahrenheit" or
+	// "celsius"), picked from lat/lon at construction time. Both Fetch
+	// and LoadThresholds use the same unit so the climate-calibrated
+	// colour bounds stay aligned with the live reading.
+	unit string
+	http *http.Client
 
 	// Climate-normals cache. LoadThresholds populates these on first call
 	// (guarded by thresholdOnce) and returns the cached values on
@@ -43,15 +49,73 @@ type Client struct {
 func (c *Client) Lat() string { return c.lat }
 func (c *Client) Lon() string { return c.lon }
 
+// Unit returns "F" or "C" — the single-letter form of the temperature
+// unit this client is configured to fetch in. Drives the colour-band
+// constants and the rendered suffix in the scene.
+func (c *Client) Unit() string {
+	if c.unit == "fahrenheit" {
+		return "F"
+	}
+	return "C"
+}
+
 // New returns a weather client for the given coordinates. Coordinates are
 // strings so callers can pass them straight from config without going
-// through float parsing on our side.
+// through float parsing on our side. The temperature unit is picked from
+// the coordinates: Fahrenheit for the US (lower-48, Alaska, Hawaii,
+// Puerto Rico) and a small handful of other holdouts, Celsius everywhere
+// else. Unparseable coordinates fall back to Celsius (the global default).
 func New(lat, lon string) *Client {
+	unit := "celsius"
+	latF, errLat := strconv.ParseFloat(lat, 64)
+	lonF, errLon := strconv.ParseFloat(lon, 64)
+	if errLat == nil && errLon == nil && useFahrenheit(latF, lonF) {
+		unit = "fahrenheit"
+	}
 	return &Client{
 		lat:  lat,
 		lon:  lon,
+		unit: unit,
 		http: &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// useFahrenheit reports whether a (lat, lon) point falls inside a
+// region that conventionally uses Fahrenheit for everyday weather: the
+// US (lower-48 bounding box, Alaska, Hawaii, Puerto Rico) and the
+// handful of other holdouts (Bahamas, Cayman Islands, Belize, Liberia,
+// Palau, FSM, Marshall Islands). The boxes are deliberately coarse —
+// for the ~0.1% of locations near a border that's good enough, and it
+// keeps the check stdlib-only.
+func useFahrenheit(lat, lon float64) bool {
+	in := func(lat1, lat2, lon1, lon2 float64) bool {
+		return lat >= lat1 && lat <= lat2 && lon >= lon1 && lon <= lon2
+	}
+	switch {
+	case in(24, 49, -125, -66): // US lower-48
+		return true
+	case in(51, 71, -180, -130): // Alaska
+		return true
+	case in(18, 23, -160, -154): // Hawaii
+		return true
+	case in(17.8, 18.6, -67.4, -65.2): // Puerto Rico
+		return true
+	case in(20.8, 27.3, -79.0, -72.7): // Bahamas
+		return true
+	case in(19.2, 19.8, -81.5, -79.7): // Cayman Islands
+		return true
+	case in(15.8, 18.5, -89.3, -87.7): // Belize
+		return true
+	case in(4.3, 8.6, -11.5, -7.3): // Liberia
+		return true
+	case in(2.8, 8.1, 131.1, 134.7): // Palau
+		return true
+	case in(1.0, 10.0, 138.0, 163.1): // Federated States of Micronesia
+		return true
+	case in(4.5, 14.7, 160.8, 172.2): // Marshall Islands
+		return true
+	}
+	return false
 }
 
 func (c *Client) Name() string { return "weather" }
@@ -146,15 +210,15 @@ func (c *Client) Fetch(ctx context.Context) (string, error) {
 		outlook = "smoke"
 	}
 
-	return fmt.Sprintf("%d°|%s|%s", temp, outlook, hazardMsg), nil
+	return fmt.Sprintf("%d°%s|%s|%s", temp, c.Unit(), outlook, hazardMsg), nil
 }
 
 func (c *Client) fetchForecast(ctx context.Context, out *currentWeatherResponse) error {
 	url := fmt.Sprintf(
 		"https://api.open-meteo.com/v1/forecast"+
 			"?latitude=%s&longitude=%s"+
-			"&current_weather=true&temperature_unit=fahrenheit&timezone=auto",
-		c.lat, c.lon,
+			"&current_weather=true&temperature_unit=%s&timezone=auto",
+		c.lat, c.lon, c.unit,
 	)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -352,12 +416,16 @@ type archiveResponse struct {
 //	coldBound = 15th-percentile of daily LOWS  (rounded to nearest int)
 //	hotBound  = 85th-percentile of daily HIGHS (rounded to nearest int)
 //
-// Both in °F. Results are cached internally; second and later calls
-// return the cached values immediately without re-fetching.
+// Both in whichever unit the client was configured for (see Unit). The
+// archive request uses the same temperature_unit as Fetch so the bounds
+// stay aligned with the live reading. Results are cached internally;
+// second and later calls return the cached values immediately without
+// re-fetching.
 //
-// To keep the comfort band (68-75°F, fixed in the caller) non-empty,
-// coldBound is clamped to <= 67 and hotBound to >= 76 so the
-// aqua/yellow/orange/red bands always have at least one degree each.
+// To keep the fixed comfort band (68-75°F / 20-24°C) non-empty,
+// coldBound is clamped just below the band's lower edge and hotBound
+// just above its upper edge so the aqua/yellow/orange/red bands always
+// have at least one degree each.
 //
 // Returns an error on network / parse / empty-sample failure. The
 // caller is expected to log and fall back to static defaults.
@@ -379,10 +447,11 @@ func (c *Client) fetchThresholds(ctx context.Context) (cold, hot int, err error)
 			"?latitude=%s&longitude=%s"+
 			"&start_date=%s&end_date=%s"+
 			"&daily=temperature_2m_max,temperature_2m_min"+
-			"&temperature_unit=fahrenheit&timezone=auto",
+			"&temperature_unit=%s&timezone=auto",
 		c.lat, c.lon,
 		start.Format("2006-01-02"),
 		end.Format("2006-01-02"),
+		c.unit,
 	)
 
 	// Archive responses over 5 years can be slow — give it a generous
@@ -416,13 +485,17 @@ func (c *Client) fetchThresholds(ctx context.Context) (cold, hot int, err error)
 	cold = int(math.Round(lows[int(float64(len(lows))*0.15)]))
 	hot = int(math.Round(highs[int(float64(len(highs))*0.85)]))
 
-	// Clamp so the fixed 68-75°F comfort band always has room above
-	// (yellow) and below (aqua) it.
-	if cold >= 68 {
-		cold = 67
+	// Clamp so the fixed comfort band (68-75°F / 20-24°C) always has
+	// room above (yellow) and below (aqua) it.
+	comfortLo, comfortHi := 68, 75
+	if c.unit == "celsius" {
+		comfortLo, comfortHi = 20, 24
 	}
-	if hot <= 75 {
-		hot = 76
+	if cold >= comfortLo {
+		cold = comfortLo - 1
+	}
+	if hot <= comfortHi {
+		hot = comfortHi + 1
 	}
 	return cold, hot, nil
 }
