@@ -36,6 +36,18 @@ compose contents on every deploy.
 
 ## Deploy workflow
 
+Scene backgrounds live on the device flash and are written by `adb push`.
+The NAS container has no USB connection to the frame, so the daemon
+running there cannot push them — that step must happen from the
+USB-attached dev box. After any scene change (new scene, new bg art,
+new weather outlook tier), run once from the dev box:
+
+```
+go run ./cmd/divoom push-bgs
+```
+
+Then deploy the daemon:
+
 ```
 make deploy
 ```
