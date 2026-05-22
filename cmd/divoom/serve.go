@@ -84,7 +84,7 @@ func runServe(ctx context.Context) error {
 
 	widgets := map[string]widget.Widget{
 		"markets":    finance.NewTicker("QQQ"),
-		"sky":        sky.NewMoon(),
+		"moonphase":  sky.NewMoon(),
 		"hn":         news.NewHN(hnKeywords),
 		"dayofyear":  calendar.NewDayOfYear(),
 		"easter":     easter.New(),
@@ -179,7 +179,7 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		path   string
 	}{
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneMarkets, render.FormatJPEG, now) }, bgMarkets},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneSky, render.FormatJPEG, now) }, bgSky},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneMoonphase, render.FormatJPEG, now) }, bgMoonphase},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneHN, render.FormatJPEG, now) }, bgHN},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneDayOfYear, render.FormatJPEG, now) }, bgDayOfYear},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now) }, bgEaster},

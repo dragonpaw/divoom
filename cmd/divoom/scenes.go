@@ -41,7 +41,7 @@ const (
 // each can have its own glyph in the bottom area.
 const (
 	bgMarkets    = "/userdata/wallclock_bg_markets.jpg"
-	bgSky        = "/userdata/wallclock_bg_sky.jpg"
+	bgMoonphase  = "/userdata/wallclock_bg_moonphase.jpg"
 	bgHN         = "/userdata/wallclock_bg_hn.jpg"
 	bgDevil      = "/userdata/wallclock_bg_devil.jpg"
 	bgDayOfYear  = "/userdata/wallclock_bg_dayofyear.jpg"
@@ -259,31 +259,41 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 			},
 		},
 
-		// "Sky" — moon phase and illumination percent on separate rows.
-		// Both colored gruvbox blue (ambient/sky).
+		// "Moonphase" — moon phase name, illumination, and next-full-moon
+		// countdown on separate rows. Colored gruvbox blue (ambient/sky).
+		// 6 elements total (3 top + 3 body) collides with
+		// nasa/cocktail/iss/weather — the driver's same-count exclusion
+		// rule blocks direct transitions between them, which is fine.
 		{
-			Name:     "sky",
+			Name:     "moonphase",
 			Weight:   20,
-			BgPath:   bgSky,
+			BgPath:   bgMoonphase,
 			Elements: []frame.DispElement{
 				sceneTitle("moon"),
 				{
 					ID: idSceneMain, Type: "Text",
-					StartX: 80, StartY: 620, Width: 640, Height: 150,
+					StartX: 80, StartY: 560, Width: 640, Height: 130,
 					Align: 2, FontSize: 80, FontID: fontProse,
 					FontColor: cBlue, BgColor: cBgHard,
 				},
 				{
 					ID: idSceneSub1, Type: "Text",
-					StartX: 30, StartY: 820, Width: 740, Height: 120,
+					StartX: 30, StartY: 730, Width: 740, Height: 110,
 					Align: 2, FontSize: 72, FontID: fontMono,
 					FontColor: cFgDark, BgColor: cBgHard,
 				},
+				{
+					ID: idSceneSub2, Type: "Text",
+					StartX: 30, StartY: 890, Width: 740, Height: 90,
+					Align: 2, FontSize: 40, FontID: fontProse,
+					FontColor: cFgDark, BgColor: cBgHard,
+				},
 			},
-			Widget: widgets["sky"],
+			Widget: widgets["moonphase"],
 			Mounts: []scene.Mount{
 				{ID: idSceneMain, Format: moonPhaseName},
 				{ID: idSceneSub1, Format: moonIllum},
+				{ID: idSceneSub2, Format: moonNextFullMoon},
 			},
 		},
 
@@ -292,7 +302,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 		// dim header sits above the body, which carries the headline and
 		// summary together. The HN-flavoured "Y" glyph in the bottom-right
 		// corner labels the scene. 5 elements total (3 top + 2 body) —
-		// matches sky/weather/aqi; the driver's same-count rule blocks
+		// matches weather/aqi; the driver's same-count rule blocks
 		// direct transitions between them, which is fine.
 		{
 			Name:   "hn",
@@ -1499,6 +1509,16 @@ func moonIllum(s string) (text, color string) {
 	parts := strings.Split(s, " · ")
 	if len(parts) >= 3 {
 		return parts[2] + " lit", ""
+	}
+	return "", ""
+}
+
+// moonNextFullMoon picks the fourth segment — the precomputed
+// "full moon in N days" / "next full moon: Jun 1" countdown string.
+func moonNextFullMoon(s string) (text, color string) {
+	parts := strings.Split(s, " · ")
+	if len(parts) >= 4 {
+		return parts[3], ""
 	}
 	return "", ""
 }

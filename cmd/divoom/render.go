@@ -44,8 +44,8 @@ func runRender(args []string) error {
 		{name: "scene-markets", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneMarkets, render.FormatJPEG, now)
 		}},
-		{name: "scene-sky", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneSky, render.FormatJPEG, now)
+		{name: "scene-moonphase", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneMoonphase, render.FormatJPEG, now)
 		}},
 		{name: "scene-hn", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneHN, render.FormatJPEG, now)

@@ -77,7 +77,7 @@ type Scene int
 
 const (
 	SceneMarkets Scene = iota
-	SceneSky
+	SceneMoonphase
 	SceneHN
 	SceneDayOfYear
 	SceneEaster
@@ -251,7 +251,7 @@ func drawSceneGlyph(img *image.RGBA, scene Scene) {
 				&image.Uniform{c}, image.Point{}, draw.Src)
 		}
 
-	case SceneSky:
+	case SceneMoonphase:
 		// Crescent: filled circle minus an offset circle in bg color.
 		fillCircle(img, cx, cy, 160, c)
 		fillCircle(img, cx+60, cy-30, 150, GruvBgHard)
