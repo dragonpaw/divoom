@@ -87,6 +87,23 @@
 //	  https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/2754.svg
 //	rsvg-convert -w 200 -h 200 -o internal/render/assets/question.png /tmp/2754.svg
 //
+// til.png is the "light-bulb" solid icon from Heroicons, Tailwind Labs'
+// open-source icon set:
+//
+//	https://github.com/tailwindlabs/heroicons
+//	https://raw.githubusercontent.com/tailwindlabs/heroicons/master/src/24/solid/light-bulb.svg
+//
+// Licensed MIT — Copyright Tailwind Labs, Inc. We only use the silhouette
+// mask; every opaque pixel is overpainted at render time. Used by the TIL
+// (r/todayilearned) scene as the "new idea / fact" glyph in the bottom-
+// right corner.
+//
+// To regenerate the PNG from the source SVG:
+//
+//	curl -o /tmp/til-lightbulb.svg \
+//	  https://raw.githubusercontent.com/tailwindlabs/heroicons/master/src/24/solid/light-bulb.svg
+//	rsvg-convert -w 200 -h 200 -o internal/render/assets/til.png /tmp/til-lightbulb.svg
+//
 // hazard.png is the "warning sign" emoji (⚠, U+26A0) from Twemoji,
 // Twitter's open-source emoji set:
 //
@@ -155,3 +172,6 @@ var hazardPNG []byte
 
 //go:embed assets/question.png
 var questionPNG []byte
+
+//go:embed assets/til.png
+var tilPNG []byte
