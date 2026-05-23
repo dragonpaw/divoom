@@ -70,7 +70,8 @@ func New(user, token string) *Widget {
 
 func (w *Widget) Name() string { return "github/activity" }
 
-// Fetch returns "<lifetime_contributions>|<total_prs>|<years_on_github>".
+// Fetch returns
+// "<lifetime_contributions>|<total_prs>|<open_prs>|<years_on_github>".
 // Results are cached for cacheTTL; concurrent callers wait on the same
 // mutex so we only ever have one in-flight Fetch at a time per widget
 // instance.
@@ -83,18 +84,19 @@ func (w *Widget) Fetch(ctx context.Context) (string, error) {
 
 	contributions, years, lerr := w.lifetimeContributions(ctx)
 	prs, perr := w.totalPRs(ctx)
+	open, oerr := w.openPRs(ctx)
 
 	// If every call failed, surface the first error so the driver can log
 	// it and leave the previous cached value on screen. If at least one
 	// succeeded, render what we have (zeros for the failed segments).
-	if lerr != nil && perr != nil {
+	if lerr != nil && perr != nil && oerr != nil {
 		w.lastFetch = time.Now()
 		w.cached = ""
 		w.cachedErr = fmt.Errorf("github: %w", lerr)
 		return w.cached, w.cachedErr
 	}
 
-	out := fmt.Sprintf("%d|%d|%d", contributions, prs, years)
+	out := fmt.Sprintf("%d|%d|%d|%d", contributions, prs, open, years)
 	w.lastFetch = time.Now()
 	w.cached = out
 	w.cachedErr = nil
@@ -104,7 +106,20 @@ func (w *Widget) Fetch(ctx context.Context) (string, error) {
 // totalPRs returns the lifetime count of PRs authored by the user
 // (open + merged + closed), via the REST /search/issues endpoint.
 func (w *Widget) totalPRs(ctx context.Context) (int, error) {
-	q := fmt.Sprintf("author:%s type:pr", w.User)
+	return w.countSearchIssues(ctx, fmt.Sprintf("author:%s type:pr", w.User))
+}
+
+// openPRs returns the count of currently-open PRs authored by the
+// user, via the REST /search/issues endpoint. A non-zero value is
+// the live "what's outstanding" reading the dashboard surfaces
+// alongside the slower-changing lifetime stats.
+func (w *Widget) openPRs(ctx context.Context) (int, error) {
+	return w.countSearchIssues(ctx, fmt.Sprintf("is:open author:%s type:pr", w.User))
+}
+
+// countSearchIssues hits /search/issues with q and returns
+// total_count. Shared by totalPRs / openPRs.
+func (w *Widget) countSearchIssues(ctx context.Context, q string) (int, error) {
 	url := restSearchIssues + "?per_page=1&q=" + queryEscape(q)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -115,7 +130,7 @@ func (w *Widget) totalPRs(ctx context.Context) (int, error) {
 		TotalCount int `json:"total_count"`
 	}
 	if err := w.do(req, &body); err != nil {
-		return 0, fmt.Errorf("total prs: %w", err)
+		return 0, fmt.Errorf("search issues: %w", err)
 	}
 	return body.TotalCount, nil
 }

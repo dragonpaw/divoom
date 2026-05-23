@@ -33,6 +33,8 @@ const (
 	idSceneSub3  = 13
 	idSceneSub4  = 14
 	idSceneSub5  = 15
+	idSceneSub6  = 16
+	idSceneSub7  = 17
 )
 
 // Font IDs on the device. All custom-pushed via adb (see docs/api.md →
@@ -410,10 +412,12 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 
 // --- github formatters ---
 //
-// Widget output: "<lifetime_contributions>|<total_prs>|<years_on_github>",
-// e.g. "14238|287|11". The hero row gets the lifetime contributions with
-// thousands separators; the two small stat rows render PRs and years
-// with their unit suffix.
+// Widget output: "<lifetime_contributions>|<total_prs>|<open_prs>|<years_on_github>",
+// e.g. "14238|287|4|11". The hero row gets the lifetime contributions
+// with thousands separators; the three small stat rows render total
+// PRs, open PRs, and years. Open PRs colour-shifts: cAqua when >0
+// (you have outstanding work) so the live reading stands apart from
+// the slower-changing lifetime totals.
 
 func githubLifetime(raw string) (text, color string) {
 	parts := strings.Split(raw, "|")
@@ -436,12 +440,25 @@ func githubTotalPRs(raw string) (text, color string) {
 	return withThousands(n), cFg
 }
 
-func githubYears(raw string) (text, color string) {
+func githubOpenPRs(raw string) (text, color string) {
 	parts := strings.Split(raw, "|")
 	if len(parts) < 3 {
+		return "0", cFgDark
+	}
+	n, _ := strconv.Atoi(parts[2])
+	c := cFgDark
+	if n > 0 {
+		c = cAqua
+	}
+	return strconv.Itoa(n), c
+}
+
+func githubYears(raw string) (text, color string) {
+	parts := strings.Split(raw, "|")
+	if len(parts) < 4 {
 		return "0", cFg
 	}
-	return parts[2], cFg
+	return parts[3], cFg
 }
 
 // withThousands inserts comma separators every three digits for the
