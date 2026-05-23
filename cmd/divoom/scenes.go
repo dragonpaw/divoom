@@ -59,7 +59,9 @@ const (
 	bgDidYouKnow = "/userdata/wallclock_bg_didyouknow.jpg"
 	bgSunrise    = "/userdata/wallclock_bg_sunrise.jpg"
 	bgZenQuotes  = "/userdata/wallclock_bg_zenquotes.jpg"
-	bgNASA       = "/userdata/wallclock_bg_nasa.jpg"
+	// NASA APOD: bgs live at /userdata/wallclock_bg_nasa_NNN.jpg, one
+	// per curated date in nasaCuratedDates. The scene's BgPathFor
+	// picks an index per activation (see scene_nasa.go).
 	bgCocktail   = "/userdata/wallclock_bg_cocktail.jpg"
 	bgOnThisDay  = "/userdata/wallclock_bg_onthisday.jpg"
 	bgISS        = "/userdata/wallclock_bg_iss.jpg"
@@ -344,6 +346,14 @@ func alwaysOn(now time.Time) []frame.DispElement {
 			TextMessage: weekendText,
 		},
 	}
+}
+
+// bgNASAFor returns the on-device path for the NASA APOD bg at index i
+// (0..len(nasaCuratedDates)-1). Each path holds the baked APOD for one
+// curated date; the scene's BgPathFor picks a random index per
+// activation so the wall display rotates through the curated set.
+func bgNASAFor(i int) string {
+	return fmt.Sprintf("/userdata/wallclock_bg_nasa_%03d.jpg", i)
 }
 
 // sceneTitle returns the canonical scene-title element — small, dim,

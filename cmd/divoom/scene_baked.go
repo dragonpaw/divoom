@@ -25,7 +25,6 @@ import (
 	"image/jpeg"
 	"io"
 	"log/slog"
-	"math/rand/v2"
 	"net/http"
 	"os"
 	"strings"
@@ -52,11 +51,10 @@ const (
 
 // bakeNASAandCocktailBackgrounds is called from runPush after
 // pushSceneBackgrounds. Each composite is best-effort — on API or
-// network failure we log a warning and leave the plain scene bg in
-// place from the previous step. Errors do not abort the push.
+// network failure we log a warning and continue.
 func bakeNASAandCocktailBackgrounds(ctx context.Context) error {
-	if err := bakeNASABackground(ctx); err != nil {
-		slog.Warn("nasa bg compositing failed; leaving plain scene bg", "err", err)
+	if err := bakeAllNASABackgrounds(ctx); err != nil {
+		slog.Warn("nasa bg compositing failed", "err", err)
 	}
 	if err := bakeCocktailBackground(ctx); err != nil {
 		slog.Warn("cocktail bg compositing failed; leaving plain scene bg", "err", err)
@@ -93,36 +91,60 @@ type nasaAPODResponse struct {
 	MediaType string `json:"media_type"`
 }
 
-func bakeNASABackground(ctx context.Context) error {
+// bakeAllNASABackgrounds iterates the curated APOD date list, bakes
+// each entry into a per-index bg JPG, and adb-pushes each to its
+// indexed device path (bgNASAFor(i)). The on-device NASA scene then
+// uses BgPathFor to pick a random index per activation, so the wall
+// display rotates through every curated picture instead of always
+// showing the same one.
+//
+// Each per-date bake is best-effort: on fetch / encode failure we log
+// and fall back to pushing the plain SceneNASA bg (the gruvbox hero
+// chrome with no embedded photo) for that index, so the device never
+// has a missing path. The plain fallback is rendered once at the top.
+func bakeAllNASABackgrounds(ctx context.Context) error {
 	apodKey := os.Getenv("NASA_API_KEY")
 	if apodKey == "" {
 		apodKey = "DEMO_KEY"
 	}
 
-	// Pick a random date from the curated APOD list rather than always
-	// today's entry. Retry up to nasaPickAttempts times if a random pick
-	// returns a video or non-image media_type.
-	const nasaPickAttempts = 5
-	var body *nasaAPODResponse
-	var err error
-	for i := 0; i < nasaPickAttempts; i++ {
-		date := nasaCuratedDates[rand.IntN(len(nasaCuratedDates))]
-		body, err = fetchAPOD(ctx, apodKey, date)
+	// Plain scene bg (hero chrome only) — used as a per-index fallback
+	// when a date's APOD bake fails. Rendered once and reused.
+	plainBg, err := render.SceneBackground(render.SceneNASA, render.FormatJPEG, time.Now())
+	if err != nil {
+		return fmt.Errorf("render plain nasa bg: %w", err)
+	}
+
+	for i, date := range nasaCuratedDates {
+		path := bgNASAFor(i)
+		out, err := bakeOneNASAImage(ctx, apodKey, date)
 		if err != nil {
-			slog.Warn("apod fetch failed for curated date; retrying", "date", date, "err", err)
+			slog.Warn("nasa bake failed; pushing plain fallback for this index",
+				"index", i, "date", date, "err", err)
+			if perr := pushBytes(ctx, plainBg, path); perr != nil {
+				slog.Warn("nasa fallback push failed", "index", i, "err", perr)
+			}
 			continue
 		}
-		if body.MediaType == "image" {
-			break
+		if perr := pushBytes(ctx, out, path); perr != nil {
+			slog.Warn("nasa push failed", "index", i, "date", date, "err", perr)
+			continue
 		}
-		slog.Info("apod is non-image for curated date; retrying with another pick",
-			"date", date, "media_type", body.MediaType)
+		slog.Info("nasa apod bg pushed", "index", i, "date", date)
 	}
+	return nil
+}
+
+// bakeOneNASAImage fetches the APOD for date, composites it into the
+// scene bg, and returns the encoded JPEG bytes. Returns an error on
+// any fetch / encode failure; callers fall back to the plain bg.
+func bakeOneNASAImage(ctx context.Context, apiKey, date string) ([]byte, error) {
+	body, err := fetchAPOD(ctx, apiKey, date)
 	if err != nil {
-		return fmt.Errorf("fetch apod after %d tries: %w", nasaPickAttempts, err)
+		return nil, fmt.Errorf("fetch apod: %w", err)
 	}
-	if body == nil || body.MediaType != "image" {
-		return fmt.Errorf("apod: no image found in %d random picks", nasaPickAttempts)
+	if body.MediaType != "image" {
+		return nil, fmt.Errorf("apod %s is %q, not image", date, body.MediaType)
 	}
 
 	imgURL := body.HDURL
@@ -130,44 +152,32 @@ func bakeNASABackground(ctx context.Context) error {
 		imgURL = body.URL
 	}
 	if imgURL == "" {
-		return fmt.Errorf("apod response has no image url")
+		return nil, fmt.Errorf("apod %s has no image url", date)
 	}
 
 	photo, err := fetchImage(ctx, imgURL)
 	if err != nil {
-		return fmt.Errorf("download apod image: %w", err)
+		return nil, fmt.Errorf("download apod image: %w", err)
 	}
 
-	// Start from the plain scene bg (with title row + saturn glyph already
-	// drawn into it by render.SceneBackground).
 	bgBytes, err := render.SceneBackground(render.SceneNASA, render.FormatJPEG, time.Now())
 	if err != nil {
-		return fmt.Errorf("render scene bg: %w", err)
+		return nil, fmt.Errorf("render scene bg: %w", err)
 	}
 	canvas, err := jpegToRGBA(bgBytes)
 	if err != nil {
-		return fmt.Errorf("decode scene bg: %w", err)
+		return nil, fmt.Errorf("decode scene bg: %w", err)
 	}
 
-	// Resize + centre-crop the photo into the image slot.
 	pasteImage(canvas, photo, image.Rect(nasaImageX, nasaImageY, nasaImageX+nasaImageW, nasaImageY+nasaImageH))
 
-	// Draw the APOD title underneath the photo.
 	if err := drawCenteredText(canvas, body.Title,
 		image.Rect(nasaTitleX, nasaTitleY, nasaTitleX+nasaTitleW, nasaTitleY+nasaTitleH),
 		nasaTitleFS, gruvFg); err != nil {
-		return fmt.Errorf("draw title: %w", err)
+		return nil, fmt.Errorf("draw title: %w", err)
 	}
 
-	out, err := encodeJPEG(canvas)
-	if err != nil {
-		return fmt.Errorf("encode jpeg: %w", err)
-	}
-	if err := pushBytes(ctx, out, bgNASA); err != nil {
-		return fmt.Errorf("push: %w", err)
-	}
-	slog.Info("nasa apod bg composited and pushed", "title", body.Title, "date", body.Date)
-	return nil
+	return encodeJPEG(canvas)
 }
 
 // fetchAPOD calls the NASA APOD endpoint. When date is "" the API
