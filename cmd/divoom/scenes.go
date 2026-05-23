@@ -478,6 +478,27 @@ func pipeAtColor(i int, c string) func(raw string) (text, color string) {
 	}
 }
 
+// tilBody extracts and normalizes the fact body from the TIL widget's
+// "TIL|<title>" output. Strips any leading "TIL that " / "TIL: " / "TIL "
+// prefix (case-insensitive) so the body flows out of the monumental
+// "T I L" wordmark baked above it. Ensures the result starts with "that "
+// so the visual sentence completes as "TIL · that <fact>".
+func tilBody(raw string) (text, color string) {
+	body, _ := pipeAt(1)(raw)
+	body = strings.TrimSpace(body)
+	lower := strings.ToLower(body)
+	for _, prefix := range []string{"til that ", "til: ", "til, ", "til "} {
+		if strings.HasPrefix(lower, prefix) {
+			body = strings.TrimSpace(body[len(prefix):])
+			break
+		}
+	}
+	if !strings.HasPrefix(strings.ToLower(body), "that ") {
+		body = "that " + body
+	}
+	return body, ""
+}
+
 // --- dictionary entry formatters ---
 //
 // Devil's Dictionary and Jargon File both emit "Source|<entry>|<author>"

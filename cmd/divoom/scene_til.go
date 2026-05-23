@@ -6,30 +6,31 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// "TIL" — top post of the day from r/todayilearned. Mirrors the
-// catfacts shape exactly (single body Text, vCentered, header
-// dropped via pipeAt(1)); the lightbulb glyph in the bottom-right
-// corner carries the "TIL" label work. Element count 4 (3 top + 1
-// body) collides with easter / catfacts / didyouknow; Driver.pick()'s
-// same-count rule blocks direct transitions between them, which
-// is fine.
+// "TIL" — top post of the day from r/todayilearned. The monumental
+// "T I L" wordmark is baked into the background (see render.drawTILChrome)
+// and the body Text continues the grammatical thought ("...that <fact>").
+// The widget keeps its 2-segment "TIL|<title>" contract; the scene's
+// tilBody formatter strips any leading "TIL that " / "TIL: " / "TIL "
+// prefix and defensively ensures the body starts with "that " so the
+// visual sentence completes as "TIL · that <fact>".
+//
+// Element count: 1 body Text + always-on 2 Text + Time = 3 Text + 1 Time.
 func tilScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "til",
 		Weight: 20,
 		BgPath: bgTIL,
 		Elements: []frame.DispElement{
-			sceneTitle("today I learned"),
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 20, StartY: 540, Width: 760, Height: 560,
-				Align: 2, FontSize: 38, FontID: fontProse,
+				StartX: 80, StartY: 770, Width: 640, Height: 380,
+				Align: 0, FontSize: 42, FontID: fontProse,
 				FontColor: cFg, BgColor: cBgHard,
 			},
 		},
 		Widget: widgets["til"],
 		Mounts: []scene.Mount{
-			{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBody},
+			{ID: idSceneSub1, Format: tilBody},
 		},
 	}
 }

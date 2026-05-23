@@ -415,3 +415,27 @@ func TestParseISSCoords(t *testing.T) {
 		}
 	})
 }
+
+// TestTILBody covers the prefix-stripping + defensive "that " prepend
+// rules so the body always flows out of the baked "T I L" wordmark
+// as a single grammatical sentence.
+func TestTILBody(t *testing.T) {
+	cases := []struct {
+		name, raw, want string
+	}{
+		{"TIL that prefix", "TIL|TIL that the Iliad...", "that the Iliad..."},
+		{"TIL bare prefix", "TIL|TIL the Iliad...", "that the Iliad..."},
+		{"TIL colon prefix", "TIL|TIL: the Iliad...", "that the Iliad..."},
+		{"already starts with that", "TIL|that the Iliad...", "that the Iliad..."},
+		{"defensive prepend", "TIL|the Iliad...", "that the Iliad..."},
+		{"case insensitive", "TIL|til That ...", "that ..."},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, _ := tilBody(c.raw)
+			if got != c.want {
+				t.Errorf("tilBody(%q) = %q, want %q", c.raw, got, c.want)
+			}
+		})
+	}
+}

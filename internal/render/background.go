@@ -144,6 +144,12 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// world-map outline, equator + prime-meridian hairlines. The
 		// corner glyph is intentionally suppressed (see drawSceneGlyph).
 		DrawISSChrome(img)
+	case SceneTIL:
+		// TIL scene chrome: monumental "T I L" wordmark top-left, yellow
+		// rule under it, footer hairline + r/todayilearned attribution.
+		// The lightbulb glyph still anchors the bottom-right corner.
+		drawSceneGlyph(img, scene)
+		drawTILChrome(img)
 	case SceneCatFacts:
 		// Field-guide entry chrome: italic-ish "Felis catus" binomial,
 		// short underline, taxonomic classification, pilcrow drop-marker
@@ -468,6 +474,68 @@ func drawHNChrome(img *image.RGBA) {
 	// Dim footer rule (1px) above the metadata footer.
 	draw.Draw(img, image.Rect(left, footerRuleY, right, footerRuleY+1),
 		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+}
+
+// drawTILChrome bakes the TIL scene's monumental wordmark and footer
+// chrome: a poster-weight "T I L" in Roboto Condensed Light yellow at
+// the top-left, a 4px yellow rule beneath it, a 1px footer hairline,
+// and a small r/todayilearned attribution in Iosevka mono. The body
+// Text element ("that <fact>") flows under the rule, completing the
+// grammatical thought "TIL · that <fact>". The corner lightbulb glyph
+// is painted separately by drawSceneGlyph.
+func drawTILChrome(img *image.RGBA) {
+	const (
+		left            = 80
+		right           = CanvasW - 80
+		wordmarkBase    = 680
+		ruleY           = 735
+		ruleH           = 4
+		footerRuleY     = 1180
+		attributionBase = 1220
+	)
+	// Monumental "T I L" — each letter painted separately so the
+	// letter-spacing reads as a poster instead of a word. Spacing tuned
+	// empirically to consume roughly the full 640px text width.
+	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 180, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			// Three letters across left..right with even spacing — anchor
+			// the first at `left`, last at `right`, middle in the centre.
+			// Centring each letter on its column keeps the optical balance
+			// independent of per-glyph advance widths.
+			cols := []int{left + 60, (left + right) / 2, right - 60}
+			drawLabelCentered(img, "T", face, cols[0], wordmarkBase, GruvYellow)
+			drawLabelCentered(img, "I", face, cols[1], wordmarkBase, GruvYellow)
+			drawLabelCentered(img, "L", face, cols[2], wordmarkBase, GruvYellow)
+			face.Close()
+		} else {
+			slog.Warn("til chrome: wordmark face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("til chrome: wordmark font load failed", "err", err)
+	}
+	// 4px yellow rule under the wordmark.
+	draw.Draw(img, image.Rect(left, ruleY, right, ruleY+ruleH),
+		&image.Uniform{GruvYellow}, image.Point{}, draw.Src)
+	// Footer hairline.
+	draw.Draw(img, image.Rect(left, footerRuleY, right, footerRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	// r/todayilearned attribution — Iosevka mono 24pt dim, left-aligned.
+	if f, err := LoadFont("Iosevka-Regular.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 24, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			drawLabelLeft(img, "r/todayilearned", face, left, attributionBase, GruvFgDark)
+			face.Close()
+		} else {
+			slog.Warn("til chrome: attribution face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("til chrome: attribution font load failed", "err", err)
+	}
 }
 
 // catfactsInstitutions is the small pool of in-universe attributions the
