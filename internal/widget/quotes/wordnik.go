@@ -48,6 +48,15 @@ type wordnikResponse struct {
 		Text         string `json:"text"`
 		PartOfSpeech string `json:"partOfSpeech"`
 	} `json:"definitions"`
+	// Pronunciations is the Wordnik WOTD's optional pronunciation list.
+	// We surface the first entry's Raw value (typically IPA) as the
+	// fourth pipe segment so the ceremony-style scene can render it
+	// beside the POS tag. RawType is ignored — the StyleCeremony layout
+	// only displays the string, not its notation system.
+	Pronunciations []struct {
+		Raw     string `json:"raw"`
+		RawType string `json:"rawType"`
+	} `json:"pronunciations"`
 }
 
 func (w *Wordnik) Fetch(ctx context.Context) (string, error) {
@@ -78,7 +87,11 @@ func (w *Wordnik) Fetch(ctx context.Context) (string, error) {
 	if def.Text == "" {
 		return "", fmt.Errorf("wordnik: empty first definition")
 	}
-	return formatWOTD(body.Word, def.PartOfSpeech, def.Text), nil
+	pron := ""
+	if len(body.Pronunciations) > 0 {
+		pron = strings.TrimSpace(body.Pronunciations[0].Raw)
+	}
+	return formatWOTD(body.Word, def.PartOfSpeech, def.Text, pron), nil
 }
 
 // formatWOTD builds the pipe-delimited line the DictionaryScene parser
@@ -86,10 +99,12 @@ func (w *Wordnik) Fetch(ctx context.Context) (string, error) {
 // (n, v, adj, adv, prep, conj, interj, pron); unknown values are
 // dropped so the regex's POS-optional fallback still extracts the
 // headword. The definition has Wordnik's HTML tags (<xref>, <i>) stripped
-// since the device renderer treats them as literal text.
-func formatWOTD(word, pos, definition string) string {
+// since the device renderer treats them as literal text. pron, when
+// non-empty, is surfaced as a fourth pipe segment so StyleCeremony can
+// render it beside the POS tag; the baked fallback list passes "".
+func formatWOTD(word, pos, definition, pron string) string {
 	entry := strings.ToUpper(word) + ", " + abbreviatePOS(pos) + " " + stripTags(definition)
-	return "Word of the Day|" + entry + "|"
+	return "Word of the Day|" + entry + "||" + pron
 }
 
 // abbreviatePOS maps Wordnik's part-of-speech strings to the atoms the
@@ -145,7 +160,7 @@ func stripTags(s string) string {
 // deliberately small — see the Wordnik type comment.
 func wordnikFallback(now time.Time) string {
 	w := wordnikFallbackList[now.YearDay()%len(wordnikFallbackList)]
-	return "Word of the Day|" + w + "|"
+	return "Word of the Day|" + w + "||"
 }
 
 // wordnikFallbackList is the no-key fallback. Each entry already matches

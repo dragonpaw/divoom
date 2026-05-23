@@ -1213,110 +1213,283 @@ func vCenterInTrack(text string, e frame.DispElement, trackTop, trackBot, charsP
 // the same palette (yellow headword, aqua POS, fg definition) so they
 // read as a consistent typographic family even when the source material
 // differs.
+// DictionaryStyle picks one of three per-source body layouts that share
+// the FamilyTerminal chrome (shell prompt + status-bar footer). The
+// styles tune typography and proportions for the different shapes of
+// the underlying corpora:
+//   - StyleManpage   — jargon: header line, body, see-also footer.
+//   - StylePunchline — devil's: big centred aphorism in pull-quote ornaments.
+//   - StyleCeremony  — wordnik: monumental centred headword, tiny POS, breathy body.
+type DictionaryStyle int
+
+const (
+	// StyleManpage is the zero value — jargon's three-row layout (header,
+	// body, see-also). Default for scenes that don't set Style explicitly.
+	StyleManpage DictionaryStyle = iota
+	StylePunchline
+	StyleCeremony
+)
+
 type DictionarySceneOpts struct {
 	Name   string
 	Title  string // unused under the redesign; kept for call-site continuity
 	Weight int
 	BgPath string
 	Widget widget.Widget
+	Style  DictionaryStyle
 }
 
+// DictionaryScene dispatches on opts.Style to one of three per-source
+// layouts. All share the FamilyTerminal chrome baked into the bg JPG.
 func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
-	// Compute where the baked shell-prompt prefix ends so the headword
-	// sits flush right of it on the same baseline. The fallback (80) is
-	// the canvas left margin and matches the chrome-failure render path.
-	headwordX := 80
-	chrome := quoteFamilyChromeByName(opts.Name, time.Now())
-	if chrome.ShellPrompt != "" {
-		// 12 px gap between the baked prompt and the headword. Iosevka
-		// 28pt is the baked face; MeasureLabel uses the same DPI/hinting
-		// pair as the chrome painter, so the two stay aligned.
-		if w, err := render.MeasureLabel(chrome.ShellPrompt+" ", "Iosevka-Regular.ttf", 28); err == nil {
-			headwordX = 80 + w
-		}
+	switch opts.Style {
+	case StylePunchline:
+		return dictionarySceneDevil(opts)
+	case StyleCeremony:
+		return dictionarySceneWordnik(opts)
+	default:
+		return dictionarySceneJargon(opts)
 	}
+}
 
+// dictionaryHeadwordX computes where the headword should start on the
+// shell-prompt line — flush right of the baked "$ <cmd> " prompt. The
+// fallback (80) is the canvas left margin and matches the chrome-failure
+// render path. Shared by the StyleManpage and StylePunchline layouts;
+// StyleCeremony centres the headword instead and doesn't call this.
+func dictionaryHeadwordX(name string) int {
+	chrome := quoteFamilyChromeByName(name, time.Now())
+	if chrome.ShellPrompt == "" {
+		return 80
+	}
+	// Iosevka 28pt is the baked face used by drawTerminalChrome; the
+	// trailing space gives a ~12px visual gap between prompt and headword.
+	w, err := render.MeasureLabel(chrome.ShellPrompt+" ", "Iosevka-Regular.ttf", 28)
+	if err != nil {
+		return 80
+	}
+	return 80 + w
+}
+
+// dictionarySceneJargon builds the StyleManpage layout: a one-line
+// header (headword + pronunciation + POS) flush right of the baked
+// shell prompt, the body in the middle, and a small "see also" footer.
+func dictionarySceneJargon(opts DictionarySceneOpts) *scene.Scene {
+	headwordX := dictionaryHeadwordX(opts.Name)
 	elements := []frame.DispElement{
-		// Headword — Iosevka (mono), left-aligned, sitting just to the
-		// right of the baked "$ <cmd>" prompt. Smaller than the previous
-		// 90pt to fit on one line beside the prompt; fits the terminal-
-		// session aesthetic better than the giant heading anyway.
 		{
 			ID: idSceneSub1, Type: "Text",
 			StartX: headwordX, StartY: 490, Width: CanvasW - 80 - headwordX, Height: 50,
 			Align: 0, FontSize: 36, FontID: fontMono,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
-		// Part-of-speech tag — small aqua, dropped one row below the
-		// headword so the headword line stays uncluttered.
 		{
 			ID: idSceneSub2, Type: "Text",
-			StartX: 80, StartY: 560, Width: 640, Height: 40,
-			Align: 0, FontSize: 26, FontID: fontProseLight,
-			FontColor: cAqua, BgColor: cBgHard,
+			StartX: 80, StartY: 600, Width: 640, Height: 480,
+			Align: 0, FontSize: 36, FontID: fontProse,
+			FontColor: cFg, BgColor: cBgHard,
 		},
-		// Definition — body prose, left-aligned, vertically centred
-		// inside the body track. fitDictionaryBody auto-shrinks the font
-		// for long entries.
 		{
 			ID: idSceneSub3, Type: "Text",
-			StartX: 80, StartY: 620, Width: 640, Height: 510,
-			Align: 0, FontSize: 34, FontID: fontProseLight,
+			StartX: 80, StartY: 1100, Width: 640, Height: 36,
+			Align: 0, FontSize: 24, FontID: fontProseLight,
+			FontColor: cFgDark, BgColor: cBgHard,
+		},
+	}
+	mounts := []scene.Mount{
+		{ID: idSceneSub1, Format: jargonHeader},
+		{ID: idSceneSub2, Format: dictionaryDefinition, Geometry: fitDictionaryBody},
+		{ID: idSceneSub3, Format: jargonSeeAlso, AllowEmpty: true},
+	}
+	return &scene.Scene{
+		Name: opts.Name, Weight: opts.Weight, BgPath: opts.BgPath,
+		Elements: elements, Widget: opts.Widget, Mounts: mounts,
+	}
+}
+
+// dictionarySceneDevil builds the StylePunchline layout: one-line header
+// (HEADWORD, POS) flush right of the baked prompt, then a giant centred
+// aphorism body filling the middle. The two GIANT curly-quote ornaments
+// are baked into the bg JPG by drawPunchlineOrnaments (see quote_family.go).
+func dictionarySceneDevil(opts DictionarySceneOpts) *scene.Scene {
+	headwordX := dictionaryHeadwordX(opts.Name)
+	elements := []frame.DispElement{
+		{
+			ID: idSceneSub1, Type: "Text",
+			StartX: headwordX, StartY: 490, Width: CanvasW - 80 - headwordX, Height: 60,
+			Align: 0, FontSize: 44, FontID: fontProseLight,
+			FontColor: cYellow, BgColor: cBgHard,
+		},
+		{
+			ID: idSceneSub2, Type: "Text",
+			StartX: 160, StartY: 780, Width: 520, Height: 280,
+			Align: 2, FontSize: 60, FontID: fontProse,
 			FontColor: cFg, BgColor: cBgHard,
 		},
 	}
 	mounts := []scene.Mount{
-		{ID: idSceneSub1, Format: dictionaryWord, Geometry: shrinkHeadwordTerminal},
-		{ID: idSceneSub2, Format: dictionaryPOS, AllowEmpty: true},
-		{ID: idSceneSub3, Format: dictionaryDefinition, Geometry: fitDictionaryBodyTerminal},
+		{ID: idSceneSub1, Format: devilHeader},
+		{ID: idSceneSub2, Format: dictionaryDefinition, Geometry: fitDevilBody},
 	}
 	return &scene.Scene{
-		Name:     opts.Name,
-		Weight:   opts.Weight,
-		BgPath:   opts.BgPath,
-		Elements: elements,
-		Widget:   opts.Widget,
-		Mounts:   mounts,
+		Name: opts.Name, Weight: opts.Weight, BgPath: opts.BgPath,
+		Elements: elements, Widget: opts.Widget, Mounts: mounts,
 	}
 }
 
-// shrinkHeadwordTerminal: same idea as shrinkHeadword but scaled for the
-// smaller Iosevka headword used in the terminal layout. Mono characters
-// are wider, so the per-char ratio is higher.
-func shrinkHeadwordTerminal(text string, e frame.DispElement) frame.DispElement {
-	const (
-		maxFontSize    = 36
-		minFontSize    = 20
-		charWidthRatio = 0.55 // empirical for Iosevka regular
-	)
-	if text == "" {
-		return e
+// dictionarySceneWordnik builds the StyleCeremony layout: a monumental
+// letter-spaced headword centred at the top of the body area, a tiny
+// POS+pronunciation row beneath it, and the body's prose centred below.
+// The shell prompt (with today's date) is baked into the bg chrome but
+// the headword is centre-aligned in its own track and doesn't sit
+// alongside it — the negative space IS the design.
+func dictionarySceneWordnik(opts DictionarySceneOpts) *scene.Scene {
+	elements := []frame.DispElement{
+		{
+			ID: idSceneSub1, Type: "Text",
+			StartX: 40, StartY: 620, Width: 720, Height: 160,
+			Align: 2, FontSize: 110, FontID: fontProseLight,
+			FontColor: cYellow, BgColor: cBgHard,
+		},
+		{
+			ID: idSceneSub2, Type: "Text",
+			StartX: 40, StartY: 800, Width: 720, Height: 50,
+			Align: 2, FontSize: 32, FontID: fontProseLight,
+			FontColor: cFgDark, BgColor: cBgHard,
+		},
+		{
+			ID: idSceneSub3, Type: "Text",
+			StartX: 80, StartY: 940, Width: 640, Height: 200,
+			Align: 2, FontSize: 44, FontID: fontProseLight,
+			FontColor: cFg, BgColor: cBgHard,
+		},
 	}
-	estimated := int(float64(len(text)) * float64(maxFontSize) * charWidthRatio)
-	if estimated <= e.Width {
-		e.FontSize = maxFontSize
-		return e
+	mounts := []scene.Mount{
+		{ID: idSceneSub1, Format: wordnikHeadword, Geometry: fitWordnikHeadword},
+		{ID: idSceneSub2, Format: wordnikPosPron, AllowEmpty: true},
+		{ID: idSceneSub3, Format: dictionaryDefinition, Geometry: fitDictionaryBody},
 	}
-	shrunk := int(float64(e.Width) / (float64(len(text)) * charWidthRatio))
-	if shrunk < minFontSize {
-		shrunk = minFontSize
+	return &scene.Scene{
+		Name: opts.Name, Weight: opts.Weight, BgPath: opts.BgPath,
+		Elements: elements, Widget: opts.Widget, Mounts: mounts,
 	}
-	e.FontSize = shrunk
-	return e
 }
 
-// fitDictionaryBodyTerminal mirrors fitDictionaryBody but for the
-// terminal-family geometry (taller track between y=620 and y=1130 since
-// the chrome handles the source/author rows). Auto-shrinks the FontSize
-// when long entries would overflow, then vertically centres.
-func fitDictionaryBodyTerminal(text string, e frame.DispElement) frame.DispElement {
+// --- per-style dictionary formatters ---
+
+// dictionaryEntryWithPronRE captures (headword, pronunciation list, pos,
+// definition) — mirror of dictionaryEntryRE but with the pronunciation
+// segment exposed as its own group so jargonHeader can surface it.
+var dictionaryEntryWithPronRE = regexp.MustCompile(
+	`^(.+?),?\s+((?:/[^/]+/(?:,\s*/[^/]+/)*)?)\s*` +
+		`((?:n|v|vi|vt|adj|adv|prep|conj|pp|interj|pron|num|art|excl|pl|i|t|imp|abbrev)` +
+		`(?:\.?[.,](?:n|v|vi|vt|adj|adv|prep|conj|pp|interj|pron|num|art|excl|pl|i|t|imp|abbrev))*)` +
+		`\.?\s+(.+)$`,
+)
+
+// jargonHeader builds the StyleManpage header line: headword + (optional)
+// pronunciation + POS joined with tabs. Falls back to the existing
+// dictionaryWord/POS shape when the entry doesn't carry a pronunciation.
+func jargonHeader(raw string) (text, color string) {
+	body := dictionaryBody(raw)
+	if m := dictionaryEntryWithPronRE.FindStringSubmatch(body); m != nil {
+		parts := []string{m[1]}
+		if m[2] != "" {
+			parts = append(parts, m[2])
+		}
+		parts = append(parts, m[3]+".")
+		return strings.Join(parts, "  "), ""
+	}
+	w, _ := dictionaryWord(raw)
+	p, _ := dictionaryPOS(raw)
+	if p == "" {
+		return w, ""
+	}
+	return w + "  " + p, ""
+}
+
+// jargonSeeAlsoRE matches the Jargon File's trailing cross-reference
+// patterns ("See also X, Y.", "Compare X.", "Cf. X."). The capture
+// group holds the bare reference list, comma-separated.
+var jargonSeeAlsoRE = regexp.MustCompile(
+	`(?i)\s*(?:see\s+also|compare|cf\.)\s*:?\s*([^.]+?)\s*\.?\s*$`,
+)
+
+// jargonSeeAlso extracts trailing "see also" / "compare" / "Cf." reference
+// patterns from the entry body and emits "→ see also: <refs>". Empty
+// string when no such pattern is present so the scene's AllowEmpty mount
+// leaves the footer slot blank.
+func jargonSeeAlso(raw string) (text, color string) {
+	def, _ := dictionaryDefinition(raw)
+	if m := jargonSeeAlsoRE.FindStringSubmatch(def); m != nil {
+		refs := strings.TrimSpace(m[1])
+		if refs == "" {
+			return "", ""
+		}
+		return "→ see also: " + refs, ""
+	}
+	return "", ""
+}
+
+// devilHeader returns "HEADWORD, POS." on one line — the devil's
+// dictionary scene's compact header above its monumental aphorism body.
+func devilHeader(raw string) (text, color string) {
+	w, _ := dictionaryWord(raw)
+	p, _ := dictionaryPOS(raw)
+	if p == "" {
+		return w, ""
+	}
+	return w + ", " + p, ""
+}
+
+// wordnikHeadword returns the headword with thin-space letter-spacing
+// for the StyleCeremony layout, e.g. "EPHEMERAL" → "E P H E M E R A L".
+// Thin space (U+2009) is narrower than a regular space so the letters
+// read as one word rather than dissociated columns.
+func wordnikHeadword(raw string) (text, color string) {
+	w, _ := dictionaryWord(raw)
+	if w == "" {
+		return "", ""
+	}
+	var b strings.Builder
+	runes := []rune(w)
+	for i, r := range runes {
+		if i > 0 {
+			b.WriteRune(' ')
+		}
+		b.WriteRune(r)
+	}
+	return b.String(), ""
+}
+
+// wordnikPosPron combines POS + pronunciation into one line for
+// StyleCeremony's small caption row. The widget's third pipe segment
+// (when present) carries the IPA pronunciation; otherwise just POS.
+func wordnikPosPron(raw string) (text, color string) {
+	p, _ := dictionaryPOS(raw)
+	pron := pipeAtRaw(raw, 3)
+	switch {
+	case p != "" && pron != "":
+		return p + "    " + pron, ""
+	case p != "":
+		return p, ""
+	case pron != "":
+		return pron, ""
+	default:
+		return "", ""
+	}
+}
+
+// fitDevilBody auto-shrinks the punchline FontSize for long aphorisms.
+// Pattern: 60pt fits the ~95% of entries that are one or two sentences;
+// 44pt picks up the longer ones; 32pt covers the rare paragraph-length
+// entry so it doesn't clip. Vertically centres in the 280px track.
+func fitDevilBody(text string, e frame.DispElement) frame.DispElement {
 	const (
-		maxFontSize    = 34
-		minFontSize    = 22
-		trackTop       = 620
-		trackBottom    = 1130
-		charWidthRatio = 0.45
-		lineHeightFrac = 1.30
+		trackTop       = 780
+		trackBottom    = 1060
+		charWidthRatio = 0.45 // px per char ≈ FontSize * this
+		lineHeightFrac = 1.20
 	)
 	const trackH = trackBottom - trackTop
 	if text == "" {
@@ -1324,9 +1497,11 @@ func fitDictionaryBodyTerminal(text string, e frame.DispElement) frame.DispEleme
 		e.Height = trackH
 		return e
 	}
-	fs := minFontSize
+	// Tier through 60 → 44 → 32 picking the largest that fits.
+	tiers := []int{60, 44, 32}
+	fs := tiers[len(tiers)-1]
 	rendered := trackH
-	for size := maxFontSize; size >= minFontSize; size-- {
+	for _, size := range tiers {
 		charsPerLine := int(float64(e.Width) / (float64(size) * charWidthRatio))
 		if charsPerLine < 1 {
 			charsPerLine = 1
@@ -1350,6 +1525,33 @@ func fitDictionaryBodyTerminal(text string, e frame.DispElement) frame.DispEleme
 	}
 	e.StartY = trackTop + (trackH-rendered)/2
 	e.Height = rendered
+	return e
+}
+
+// fitWordnikHeadword auto-shrinks the monumental headword FontSize when
+// a long letter-spaced word would overflow the 720px track. The thin
+// spaces between letters make every word ~2x its bare letter count, so
+// the budget shrinks fast for longer words.
+func fitWordnikHeadword(text string, e frame.DispElement) frame.DispElement {
+	const (
+		maxFontSize    = 110
+		minFontSize    = 56
+		charWidthRatio = 0.45 // empirical for Roboto Condensed Light at this size
+	)
+	if text == "" {
+		return e
+	}
+	runes := []rune(text)
+	estimated := int(float64(len(runes)) * float64(maxFontSize) * charWidthRatio)
+	if estimated <= e.Width {
+		e.FontSize = maxFontSize
+		return e
+	}
+	shrunk := int(float64(e.Width) / (float64(len(runes)) * charWidthRatio))
+	if shrunk < minFontSize {
+		shrunk = minFontSize
+	}
+	e.FontSize = shrunk
 	return e
 }
 

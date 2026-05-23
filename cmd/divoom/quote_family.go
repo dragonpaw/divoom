@@ -133,10 +133,11 @@ var quoteSceneRegistry = []struct {
 		Name: "devil", Scene: render.SceneDevil, BgPath: bgDevil,
 		ChromeFor: func(now time.Time) render.FamilyChrome {
 			return render.FamilyChrome{
-				Family:       FamilyTerminal,
-				ShellPrompt:  "$ define",
-				SourceFooter: "source: The Devil's Dictionary (1906)",
-				AuthorFooter: "author: Ambrose Bierce",
+				Family:             FamilyTerminal,
+				ShellPrompt:        "$ define",
+				SourceFooter:       "source: The Devil's Dictionary (1906)",
+				AuthorFooter:       "author: Ambrose Bierce",
+				PunchlineOrnaments: true,
 			}
 		},
 	},

@@ -13,6 +13,6 @@ import (
 func jargonScene(widgets map[string]widget.Widget) *scene.Scene {
 	return DictionaryScene(DictionarySceneOpts{
 		Name: "jargon", Title: "Jargon File", Weight: 20, BgPath: bgJargon,
-		Widget: widgets["jargon"],
+		Widget: widgets["jargon"], Style: StyleManpage,
 	})
 }

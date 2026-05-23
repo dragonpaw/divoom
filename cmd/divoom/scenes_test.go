@@ -548,3 +548,141 @@ func TestMarketsChange(t *testing.T) {
 		})
 	}
 }
+
+// TestDictionaryStyleDispatch verifies each DictionaryStyle produces the
+// expected element count and element IDs. Catches a future renumbering
+// or accidental element drop in any of the three layouts.
+func TestDictionaryStyleDispatch(t *testing.T) {
+	cases := []struct {
+		name    string
+		style   DictionaryStyle
+		wantIDs []int
+	}{
+		{"manpage (jargon)", StyleManpage, []int{idSceneSub1, idSceneSub2, idSceneSub3}},
+		{"punchline (devil)", StylePunchline, []int{idSceneSub1, idSceneSub2}},
+		{"ceremony (wordnik)", StyleCeremony, []int{idSceneSub1, idSceneSub2, idSceneSub3}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := DictionaryScene(DictionarySceneOpts{
+				Name: "jargon", // a real registry entry so headwordX measurement doesn't barf
+				Style: tc.style,
+			})
+			if len(s.Elements) != len(tc.wantIDs) {
+				t.Fatalf("Elements: got %d, want %d", len(s.Elements), len(tc.wantIDs))
+			}
+			for i, want := range tc.wantIDs {
+				if s.Elements[i].ID != want {
+					t.Errorf("Elements[%d].ID = %d, want %d", i, s.Elements[i].ID, want)
+				}
+			}
+			if len(s.Mounts) != len(tc.wantIDs) {
+				t.Errorf("Mounts: got %d, want %d", len(s.Mounts), len(tc.wantIDs))
+			}
+		})
+	}
+}
+
+// TestJargonSeeAlsoExtract: happy path + no-refs + multiple-pattern variants.
+func TestJargonSeeAlsoExtract(t *testing.T) {
+	cases := []struct {
+		name, raw, want string
+	}{
+		{
+			"see also single ref",
+			"Jargon File|foo n. A thing. See also bar.|",
+			"→ see also: bar",
+		},
+		{
+			"see also multiple refs",
+			"Jargon File|foo n. A thing. See also bar, baz, quux.|",
+			"→ see also: bar, baz, quux",
+		},
+		{
+			"compare ref",
+			"Jargon File|foo n. A thing. Compare bar.|",
+			"→ see also: bar",
+		},
+		{
+			"cf. ref",
+			"Jargon File|foo n. A thing. Cf. bar.|",
+			"→ see also: bar",
+		},
+		{
+			"no refs",
+			"Jargon File|foo n. A plain definition with no refs.|",
+			"",
+		},
+		{
+			"empty raw",
+			"",
+			"",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := jargonSeeAlso(tc.raw)
+			if got != tc.want {
+				t.Errorf("jargonSeeAlso(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDevilHeader: headword + POS → combined "HEADWORD, POS." string.
+func TestDevilHeader(t *testing.T) {
+	cases := []struct {
+		name, raw, want string
+	}{
+		{
+			"noun entry",
+			"Devil's Dictionary|BEFRIEND, v.t. To make an ingrate.|Ambrose Bierce",
+			"BEFRIEND, v.t.",
+		},
+		{
+			"missing POS — headword only",
+			"Devil's Dictionary|FOO bar baz|",
+			"FOO",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := devilHeader(tc.raw)
+			if got != tc.want {
+				t.Errorf("devilHeader(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestWordnikHeadwordSpacing: letter-spacing transform inserts a regular
+// space between adjacent letters of the headword.
+func TestWordnikHeadwordSpacing(t *testing.T) {
+	cases := []struct {
+		name, raw, want string
+	}{
+		{
+			"single word",
+			"Word of the Day|EPHEMERAL, adj. Lasting briefly.||",
+			"E P H E M E R A L",
+		},
+		{
+			"two-letter word",
+			"Word of the Day|ON, prep. A short word.||",
+			"O N",
+		},
+		{
+			"empty",
+			"",
+			"",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := wordnikHeadword(tc.raw)
+			if got != tc.want {
+				t.Errorf("wordnikHeadword(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
