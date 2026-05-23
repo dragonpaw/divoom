@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -120,6 +121,14 @@ func bakeAllNASABackgrounds(ctx context.Context) error {
 		path := bgNASAFor(i)
 		out, err := bakeOneNASAImage(ctx, apodKey, date)
 		if err != nil {
+			// Quota-exhausted means every subsequent fetch will also
+			// fail — stop the whole bake instead of burning 100+ more
+			// HTTP roundtrips just to hit the same wall.
+			if errors.Is(err, errAPODQuotaExhausted) {
+				slog.Warn("nasa quota exhausted; aborting remaining bakes",
+					"completed", i, "remaining", len(nasaCuratedDates)-i, "err", err)
+				return err
+			}
 			slog.Warn("nasa bake failed; pushing plain fallback for this index",
 				"index", i, "date", date, "err", err)
 			if perr := pushBytes(ctx, plainBg, path); perr != nil {
@@ -135,6 +144,12 @@ func bakeAllNASABackgrounds(ctx context.Context) error {
 	}
 	return nil
 }
+
+// errAPODQuotaExhausted is returned by fetchAPOD when APOD signals
+// (via a long Retry-After) that the daily quota is gone. Callers
+// short-circuit the per-date loop on this sentinel since every
+// subsequent fetch will return the same error.
+var errAPODQuotaExhausted = errors.New("apod daily quota exhausted")
 
 // bakeOneNASAImage fetches the APOD for date, composites it into the
 // scene bg, and returns the encoded JPEG bytes. Returns an error on
@@ -217,6 +232,16 @@ func fetchAPOD(ctx context.Context, apiKey, date string) (*nasaAPODResponse, err
 		if resp.StatusCode == http.StatusTooManyRequests {
 			wait := retryAfterDuration(resp.Header.Get("Retry-After"))
 			resp.Body.Close()
+			// Long Retry-After means the daily quota is gone, not a
+			// transient rate-limit blip. DEMO_KEY caps at 50/day; a
+			// real key (sign up at api.nasa.gov, 30s) is 1000/hour.
+			// Bail out with a useful error rather than burning the
+			// whole push waiting for the next reset.
+			const maxWait = 2 * time.Minute
+			if wait > maxWait {
+				return nil, fmt.Errorf("%w: Retry-After %s (set NASA_API_KEY to a real key from api.nasa.gov)",
+					errAPODQuotaExhausted, wait.Round(time.Second))
+			}
 			if attempt >= nasaRateLimitRetries {
 				return nil, fmt.Errorf("http 429 after %d retries", attempt)
 			}
