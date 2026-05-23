@@ -1079,27 +1079,39 @@ func drawTerminalChrome(img *image.RGBA, prompt, sourceFooter, authorFooter stri
 		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
 }
 
-// drawPunchlineOrnaments bakes two giant pull-quote curly-quote glyphs
-// into the FamilyTerminal body area — an open " (U+201C) in the upper-
-// left and a close " (U+201D) in the lower-right — both in GruvFgDark
-// at 220pt fontProse so they read as decoration rather than punctuation.
-// Used by the devil's dictionary scene to frame its centred aphorism.
+// drawPunchlineOrnaments bakes the framed-epitaph shape used by the
+// devil's dictionary scene: two 1-pixel GruvFgDark horizontal rules
+// bracketing the centred aphorism body, plus a small (~80px) corner
+// devil-head silhouette anchored bottom-right so it identifies the
+// scene without competing with the framed body text.
+//
+// Top rule sits at y=590 (just above the body's top edge at y=740);
+// bottom rule sits at y=1080 (just below the body's bottom edge at
+// y=1060). Together they read as the rules above and below a
+// nineteenth-century epitaph or title-page motto — instantly Bierce.
 func drawPunchlineOrnaments(img *image.RGBA) {
-	f, err := LoadFont("RobotoCondensed-Regular.ttf")
-	if err != nil {
-		slog.Warn("punchline ornaments: font load failed", "err", err)
-		return
-	}
-	face, err := opentype.NewFace(f, &opentype.FaceOptions{
-		Size: 220, DPI: 72, Hinting: font.HintingFull,
+	const (
+		ruleLeft   = 80
+		ruleRight  = 720
+		ruleTopY   = 590
+		ruleBotY   = 1080
+		devilSize  = 80
+		devilCX    = CanvasW - 80 - devilSize/2 // 680 — flush with the right rule end
+		devilCY    = CanvasH - 200               // above the baked status bar
+	)
+	draw.Draw(img, image.Rect(ruleLeft, ruleTopY, ruleRight, ruleTopY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	draw.Draw(img, image.Rect(ruleLeft, ruleBotY, ruleRight, ruleBotY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+
+	devilOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(devilPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded devil: %w", err))
+		}
+		devilMask = m
 	})
-	if err != nil {
-		slog.Warn("punchline ornaments: face init failed", "err", err)
-		return
-	}
-	defer face.Close()
-	drawLabelLeft(img, "“", face, 80, 750, GruvFgDark)
-	drawLabelLeft(img, "”", face, 600, 1080, GruvFgDark)
+	paintMaskScaled(img, devilMask, devilCX, devilCY, devilSize, devilSize, GruvFgDark)
 }
 
 // drawWeatherChrome bakes the weather scene's static chrome: a small
@@ -2162,6 +2174,41 @@ func drawWeatherGlyph(img *image.RGBA, outlook string) {
 		mask = weatherMasks["cloudy"]
 	}
 	paintMask(img, mask, cx, cy, GruvBgDarker)
+}
+
+// paintMaskScaled is paintMask's resampling cousin: it paints the mask
+// scaled to (dstW × dstH) pixels, centred on (cx, cy), in colour c.
+// Sampling is nearest-neighbour — the source masks are silhouettes
+// where alpha is effectively binary, so fancier filters add nothing
+// the threshold won't immediately quantise back out.
+func paintMaskScaled(img *image.RGBA, mask image.Image, cx, cy, dstW, dstH int, c color.RGBA) {
+	mb := mask.Bounds()
+	mw, mh := mb.Dx(), mb.Dy()
+	if mw == 0 || mh == 0 || dstW <= 0 || dstH <= 0 {
+		return
+	}
+	originX := cx - dstW/2
+	originY := cy - dstH/2
+	bounds := img.Bounds()
+	for py := 0; py < dstH; py++ {
+		dy := originY + py
+		if dy < bounds.Min.Y || dy >= bounds.Max.Y {
+			continue
+		}
+		sy := py * mh / dstH
+		for px := 0; px < dstW; px++ {
+			sx := px * mw / dstW
+			_, _, _, a := mask.At(mb.Min.X+sx, mb.Min.Y+sy).RGBA()
+			if a>>8 <= starfleetDeltaAlphaThreshold {
+				continue
+			}
+			dx := originX + px
+			if dx < bounds.Min.X || dx >= bounds.Max.X {
+				continue
+			}
+			img.SetRGBA(dx, dy, c)
+		}
+	}
 }
 
 // paintMask paints every above-threshold pixel of mask into img, centred

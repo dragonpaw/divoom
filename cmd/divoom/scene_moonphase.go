@@ -1,6 +1,9 @@
 package main
 
 import (
+	"strings"
+	"time"
+
 	"github.com/dragonpaw/divoom/internal/frame"
 	"github.com/dragonpaw/divoom/internal/scene"
 	"github.com/dragonpaw/divoom/internal/widget"
@@ -42,5 +45,29 @@ func moonphaseScene(widgets map[string]widget.Widget) *scene.Scene {
 			{ID: idSceneMain, Format: moonPhaseAndIllum},
 			{ID: idSceneSub1, Format: moonNextFullMoon},
 		},
+		// On full-moon nights, repurpose the countdown row as a dry
+		// werewolf advisory: switch to mono (faux-field-note voice)
+		// and bump the size a notch so the advisory reads with weight.
+		// Other phases use the inherited prose-light + smaller size.
+		OnActivate: moonOnActivate,
+	}
+}
+
+// moonOnActivate restyles the countdown row when the widget reports
+// a full moon. The Mount formatter already swaps the text + colour;
+// this just changes font + size so the advisory looks like a posted
+// note rather than the usual dim countdown.
+func moonOnActivate(_ time.Time, raw string, elements []frame.DispElement) {
+	parts := strings.Split(raw, " · ")
+	if len(parts) < 2 || parts[1] != "full" {
+		return
+	}
+	for i, e := range elements {
+		if e.ID == idSceneSub1 {
+			elements[i].FontSize = 38
+			elements[i].FontID = fontMono
+			elements[i].StartY = 1040
+			return
+		}
 	}
 }

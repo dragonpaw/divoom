@@ -1467,22 +1467,24 @@ func dictionarySceneJargon(opts DictionarySceneOpts) *scene.Scene {
 }
 
 // dictionarySceneDevil builds the StylePunchline layout: one-line header
-// (HEADWORD, POS) flush right of the baked prompt, then a giant centred
-// aphorism body filling the middle. The two GIANT curly-quote ornaments
-// are baked into the bg JPG by drawPunchlineOrnaments (see quote_family.go).
+// (HEADWORD, POS) flush right of the baked prompt, then a centred aphorism
+// body bracketed top and bottom by thin cFgDark horizontal rules baked
+// into the bg by drawPunchlineOrnaments (see quote_family.go). The
+// headword is now the largest, heaviest element on the page — anchoring
+// the layout the way the cover word does on a Bierce title-page.
 func dictionarySceneDevil(opts DictionarySceneOpts) *scene.Scene {
 	headwordX := dictionaryHeadwordX(opts.Name)
 	elements := []frame.DispElement{
 		{
 			ID: idSceneSub1, Type: "Text",
 			StartX: headwordX, StartY: 490, Width: CanvasW - 80 - headwordX, Height: 60,
-			Align: 0, FontSize: 44, FontID: fontProseLight,
+			Align: 0, FontSize: 58, FontID: fontProse,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
 		{
 			ID: idSceneSub2, Type: "Text",
-			StartX: 160, StartY: 780, Width: 520, Height: 280,
-			Align: 2, FontSize: 60, FontID: fontProse,
+			StartX: 160, StartY: 740, Width: 520, Height: 320,
+			Align: 2, FontSize: 50, FontID: fontProse,
 			FontColor: cFg, BgColor: cBgHard,
 		},
 	}
@@ -1790,13 +1792,30 @@ func titleCasePhase(s string) string {
 }
 
 // moonNextFullMoon picks the fourth segment — the precomputed
-// "full moon in N days" / "next full moon: Jun 1" countdown string.
+// "full moon in N days" / "next full moon: Jun 1" countdown string —
+// EXCEPT on full-moon nights, when the row swaps to a dry-archival
+// werewolf advisory in cYellow. "next full moon in 0 days" would be
+// a lie on the one night that counts; this is the better lie.
 func moonNextFullMoon(s string) (text, color string) {
 	parts := strings.Split(s, " · ")
-	if len(parts) >= 4 {
-		return parts[3], ""
+	if len(parts) < 4 {
+		return "", ""
 	}
-	return "", ""
+	if len(parts) >= 2 && parts[1] == "full" {
+		return werewolfAdvisories[rand.IntN(len(werewolfAdvisories))], cYellow
+	}
+	return parts[3], ""
+}
+
+// werewolfAdvisories — dry, archival, faux-clinical one-liners that
+// take the place of the next-full-moon countdown on the one night
+// the countdown would say "0 days." Cycles each activation; the
+// catfactsInstitutions pattern but on a much smaller pool.
+var werewolfAdvisories = []string{
+	"advisory: elevated lycanthropic activity 23:00-03:00",
+	"field note: known werewolf trigger — exercise caution",
+	"local folklore advises remaining indoors after dusk",
+	"observed correlation: full moon × lupine incidents (p < 0.05)",
 }
 
 // --- ISS formatters and coordinate math ---

@@ -133,6 +133,10 @@ var quoteSceneRegistry = []struct {
 				SourceFooter:       "source: The Devil's Dictionary (1906)",
 				AuthorFooter:       "author: Ambrose Bierce",
 				PunchlineOrnaments: true,
+				// Suppress the family's default mid-right glyph; the
+				// small corner devil is painted by drawPunchlineOrnaments
+				// so it sits outside the framed body block.
+				OmitSceneGlyph: true,
 			}
 		},
 	},
