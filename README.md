@@ -4,33 +4,68 @@ A custom wall-clock dashboard for the Divoom Times Frame (800×1280 portrait),
 built because the stock app's preset dials are restrictive and the device is
 an Allwinner TinaLinux box that quietly accepts `adb` pushes and exposes a
 local JSON HTTP API at `:9000/divoom_api`. The dashboard runs as a Docker
-container on a NAS, rotating through 24 scenes that mix market tickers,
-weather, sky/moon, quotes, useless facts, HN headlines, and baked-image
-scenes for the NASA APOD and a daily cocktail.
+container on a NAS, rotating every three minutes through 24 hand-designed
+scenes that mix market tickers, weather + air quality + NWS alerts, sky /
+moon / ISS, historical events, hand-curated quotes, useless facts, HN
+headlines, and a ~300-deep rotation of typographic cocktail recipe cards
++ a 121-deep curated NASA APOD rotation.
+
+![cocktail · margarita](docs/screenshots/cocktail-margarita.jpg)
+![NASA APOD · noctilucent clouds over Paris](docs/screenshots/nasa-noctilucent.jpg)
 
 ## What this is
 
 The Times Frame is a 10.1" 800×1280 portrait IPS LCD that ships with a locked
 set of preset dials. Its undocumented-in-broken-English local HTTP API lets
-us install a custom layout: one 800×1280 background, plus up to 6 Text + 10
-Image + 6 NetData elements layered on top, plus built-in Time / Date /
-Weather / Temperature blocks.
+us install a custom layout: one 800×1280 background image, plus up to 6 Text
++ 10 Image + 6 NetData elements layered on top, plus built-in Time / Date /
+Week / Mday / MonYear / Weather / Temperature blocks (special types — each
+has its own quota and doesn't count against the 6-Text cap).
 
-Because the device's image fetcher is cloud-proxied (it can't reach LAN
-URLs), we don't try to host endpoints the frame polls. Instead the daemon:
+Because the device's image fetcher is cloud-proxied (it can't reach LAN URLs
+and silently whitelists only `f.divoom-gz.com` for `Image` element URLs), we
+don't try to host endpoints the frame polls. Instead the daemon:
 
 1. Discovers the frame on the LAN (or talks directly to `DIVOOM_FRAME_IP`).
 2. `adb`-pushes per-scene background JPGs into `/userdata/` on the device
-   (one-time, from a USB-connected dev box).
-3. Runs each widget (weather, QQQ, moon, whimsy rotator, …) in-process on
-   its own refresh cadence, caching the last value.
-4. Rotates through scenes: at each scene change it bakes the current widget
-   values into Text elements and installs the whole layout via
-   `Device/EnterCustomControlMode`.
+   (one-time, from a USB-connected dev box). The NASA + cocktail scenes
+   pre-bake every entry in their rotation pool into individual indexed
+   bg JPGs so the device can show variety without ever touching the
+   network at activation time.
+3. Runs each widget (weather, markets, moon, whimsy rotator, …) in-process
+   on its own refresh cadence, caching the last value.
+4. Rotates through scenes every 3 minutes: at each scene change it bakes
+   the current widget values into Text elements and installs the whole
+   layout via `Device/EnterCustomControlMode`.
 
-`Device/UpdateDisplayItems` is also used for sub-scene-cadence text patching
-(see `divoom display ticker`), but the steady-state rotation is one
-`EnterCustomControlMode` per scene change.
+## Scenes
+
+| Scene | What it shows |
+|---|---|
+| **markets** | Trading-terminal readout — symbol + price, week/month % badges with arrow + colour, ~35-day sparkline. `DIVOOM_TICKERS` rotates one symbol per activation. |
+| **weather** | Big temperature (colour-banded by climate-normals-fitted thresholds), bottom strip with outlook + AIR / HUM / RAIN bound to AQI band, or "⚠ NWS alert" in red when one fires. Sources: Open-Meteo forecast + air-quality + NWS. |
+| **sunrise** | Today's sunrise / sunset times + daylight hours. |
+| **moonphase** | The current phase rendered as a real disc (one of 14 pre-rendered variants across the synodic cycle) + name + illumination + countdown to next full moon. |
+| **iss** | Live sub-satellite-point dot drawn over a baked world-map outline + altitude + velocity. |
+| **dayofyear** | 12×31 calendar grid with past / today / future cells and red letter-marks for `DIVOOM_SPECIAL_DATES` birthdays / anniversaries; season banner colour-shifts spring/summer/autumn/winter. |
+| **catfacts** | Cat fact rendered as a Smithsonian-style field-guide entry — _Felis catus_ binomial, taxonomic line, pilcrow drop-marker, observation # / institution footer. |
+| **didyouknow** | Random useless fact in body prose under a big bold "?" glyph. |
+| **onthisday** | Historical event for today's date from Wikimedia — big orange year accent over the prose, tear-off-calendar glyph in the corner. |
+| **til** | Top r/todayilearned post under a monumental "T I L" wordmark. |
+| **easter** | (rare, weight 1 of ~480) Random whimsical one-liner printed dark-on-yellow _inside_ a cracked egg, with a "rare drop · ~1 in 200" caption. |
+| **github** | Lifetime contributions (hero number, comma-separated, green) + three-column stat tile of total PRs / open PRs (cAqua when >0) / years on GitHub. |
+| **hn** | Top Hacker News story filtered by keyword — title + domain + score / comments / author byline. |
+| **nasa** | Astronomy Picture of the Day from a hand-curated pool of **121 iconic dates** (JWST releases, Hubble milestones, eclipses, Cassini, Pluto, EHT, …). One bake per date, indexed bg paths, shuffled per daemon start. |
+| **cocktail** | Random drink from TheCocktailDB's Cocktail + Shot categories (~300 drinks) rendered as a typographic recipe card: drink name (huge), glass · category subhead, ingredient rows with measurements, wrapped method. Stable indexed paths, shuffled walk per daemon start. |
+| **fortune / devil / wordnik / jargon** | Four dictionary / quote terminal layouts — `$ <cmd>` shell prompt + body + baked source/author footer. |
+| **babylon5 / startrek / discworld** | Source-attributed quote scenes — from-source layout with attribution under the rule. |
+| **stoics / twain / zenquotes** | Marginalia / page-of-a-book layout. |
+
+More screenshots — every scene's baked chrome is in [`docs/screenshots/`](docs/screenshots/).
+The dynamic Text overlays only show up once the frame installs the layout
+live, so the bg-only renders look sparse for data-heavy scenes (markets,
+weather, github). The cocktail + NASA scenes are fully baked, so their
+screenshots match what you'd see on the wall.
 
 ## Architecture
 
@@ -44,36 +79,22 @@ that drives the frame over HTTP and pulls live data from external APIs.
   │ divoom push  │ ──bgs + fonts────▶  │              │ ────────▶│ :9000    │
   └──────────────┘   to /userdata/     │ divoom serve │  scene   │ JSON API │
                                        │  (container) │  swaps   │          │
-  ┌──────────────┐   Stooq, Open-Meteo │              │          │ 800×1280 │
+  ┌──────────────┐   open APIs:        │              │          │ 800×1280 │
   │ external     │ ◀──widgets poll──── │              │          │ IPS LCD  │
-  │ APIs         │   HN, NASA, etc.    └──────────────┘          └──────────┘
-  └──────────────┘
+  │ APIs         │   Open-Meteo, NWS,  └──────────────┘          └──────────┘
+  └──────────────┘   NASA APOD, NYT,
+                     HN, Wikimedia, GitHub,
+                     TheCocktailDB, Stooq
 ```
 
-`push` runs occasionally (when backgrounds or fonts change). `serve` runs
-forever, polling `divoom_api:9000` to set the active layout. Widgets fetch
-from the open internet on their own cadences; nothing on the frame ever
-reaches back into the LAN.
+`push` runs occasionally — after scene-design changes, font changes,
+or factory resets. The NASA + cocktail bakes are slow (hundreds of HTTP
+fetches + ImageMagick-style compositing + adb pushes per bake) but they're
+fully cached under `~/.cache/divoom/` so subsequent pushes are network-free.
 
-## Status
-
-- LAN discovery via Divoom's `ReturnSameLANDevice` endpoint.
-- Typed local-API client for `Channel/GetClockInfo`, `Channel/SetClockSelectId`,
-  `Device/EnterCustomControlMode`, `Device/ExitCustomControlMode`,
-  `Device/UpdateDisplayItems`.
-- Scene driver rotating Markets / Sky / Whimsy / Quote with always-on
-  Day-of-Week (coloured per weekday) + Time (coloured AM vs PM) + Date.
-- Widgets: QQQ (Stooq), moon phase, day-of-year, cat facts, useless facts,
-  HN headlines filtered by keyword, easter eggs, quotes (Devil's Dictionary,
-  Jargon File, Babylon 5, Star Trek, Discworld, sassy).
-- Background renderer (`divoom render`) producing gruvbox-dark-hard scene JPGs
-  with a hairline divider and year-progress bar.
-- Baked-image scenes for NASA APOD and a daily cocktail (image composited
-  into the bg JPG at push time).
-- Custom on-device fonts (Iosevka, Roboto Condensed) adb-pushed to the frame.
-- Dockerfile + `docker-compose.yml` for running on a NAS with `network_mode: host`.
-
-<!-- TODO: link a few representative `divoom render` outputs from docs/screenshots/ -->
+`serve` runs forever, polling `divoom_api:9000` to set the active layout.
+Widgets fetch from the open internet on their own cadences; nothing on the
+frame ever reaches back into the LAN.
 
 ## Usage
 
@@ -88,20 +109,28 @@ go run ./cmd/divoom serve          # the dashboard daemon
 ```
 
 Set `DIVOOM_FRAME_IP=<ip>` to skip cloud discovery and talk to a known device
-directly (e.g. if you want to firewall the device off the public internet but
-still want the daemon to reach it on the LAN). Set `DIVOOM_FRAME_MAC=<mac>` to
-pin to a specific frame when you have more than one.
+directly (e.g. if you've firewalled the device off the public internet but
+still want the daemon to reach it on the LAN). Set `DIVOOM_FRAME_MAC=<mac>`
+to pin to a specific frame when you have more than one. See `.env.example`
+for the full list of widget keys + deploy settings (NASA / GitHub / Wordnik
+API keys, Portainer credentials, etc.).
+
+A typical end-to-end deploy is `make` from the repo root, which builds the
+container, pushes it to GHCR, redeploys the Portainer stack on the NAS, and
+then runs `push-frame` to refresh scene backgrounds and fonts via adb.
 
 ## Docs
 
 - [`docs/api.md`](docs/api.md) — empirical notes on the Times Frame API:
-  endpoints we've used, quirks we've hit, and pointers back into Divoom's
-  broken-English upstream docs. The source of truth for "how does the device
-  actually behave"; update it in the same commit as any change that exercises
-  new behavior.
+  endpoints we've used, quirks we've hit (the cloud-proxy URL whitelist,
+  the per-type element caps, the ID-cache geometry bug, the Image-element
+  Font-field requirement), and pointers back into Divoom's broken-English
+  upstream docs at `docs/upstream/`. The source of truth for "how does the
+  device actually behave"; update it in the same commit as any change that
+  exercises new behaviour.
 - [`docs/deploy.md`](docs/deploy.md) — the GHCR + Portainer deploy workflow
   (`make deploy` from this checkout).
-- [`CLAUDE.md`](CLAUDE.md) — engineering philosophy (distilled from Kanat-
-  Alexander's *Code Simplicity*) that all changes in this repo are judged by:
-  reduce maintenance over implementation, keep pieces small, no speculative
-  generality.
+- [`CLAUDE.md`](CLAUDE.md) — engineering philosophy (distilled from
+  Kanat-Alexander's *Code Simplicity*) that all changes in this repo are
+  judged by: reduce maintenance over implementation, keep pieces small,
+  no speculative generality.
