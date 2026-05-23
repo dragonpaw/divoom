@@ -25,6 +25,7 @@ import (
 	"image/jpeg"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"strings"
@@ -98,22 +99,30 @@ func bakeNASABackground(ctx context.Context) error {
 		apodKey = "DEMO_KEY"
 	}
 
-	body, err := fetchAPOD(ctx, apodKey, "")
-	if err != nil {
-		return fmt.Errorf("fetch apod: %w", err)
-	}
-	// Video-day fallback: try yesterday once, then give up and use the
-	// plain scene bg (no image baked in).
-	if body.MediaType != "image" {
-		yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-		slog.Info("apod is non-image today; retrying yesterday", "yesterday", yesterday)
-		body, err = fetchAPOD(ctx, apodKey, yesterday)
+	// Pick a random date from the curated APOD list rather than always
+	// today's entry. Retry up to nasaPickAttempts times if a random pick
+	// returns a video or non-image media_type.
+	const nasaPickAttempts = 5
+	var body *nasaAPODResponse
+	var err error
+	for i := 0; i < nasaPickAttempts; i++ {
+		date := nasaCuratedDates[rand.IntN(len(nasaCuratedDates))]
+		body, err = fetchAPOD(ctx, apodKey, date)
 		if err != nil {
-			return fmt.Errorf("fetch apod yesterday: %w", err)
+			slog.Warn("apod fetch failed for curated date; retrying", "date", date, "err", err)
+			continue
 		}
-		if body.MediaType != "image" {
-			return fmt.Errorf("apod %q is not an image after retry", body.MediaType)
+		if body.MediaType == "image" {
+			break
 		}
+		slog.Info("apod is non-image for curated date; retrying with another pick",
+			"date", date, "media_type", body.MediaType)
+	}
+	if err != nil {
+		return fmt.Errorf("fetch apod after %d tries: %w", nasaPickAttempts, err)
+	}
+	if body == nil || body.MediaType != "image" {
+		return fmt.Errorf("apod: no image found in %d random picks", nasaPickAttempts)
 	}
 
 	imgURL := body.HDURL
@@ -189,44 +198,61 @@ func fetchAPOD(ctx context.Context, apiKey, date string) (*nasaAPODResponse, err
 }
 
 // --- Cocktail -----------------------------------------------------------
+//
+// Recipe-card redesign: the bg is now pure typography (no drink photo).
+// Layout, top to bottom:
+//
+//	y=540  drink name           — 72pt Roboto Condensed, gruvFg, centred
+//	y=620  glass · category     — 24pt Iosevka, gruvFgDark, centred
+//	y=680  hairline rule        — short centred divider
+//	y=730  "INGREDIENTS"        — 22pt Iosevka, gruvFgDark, left
+//	y=770… ingredient rows      — 28pt Roboto, gruvFg, "<measure> <ingredient>"
+//	y=1020 "METHOD"             — 22pt Iosevka, gruvFgDark, left
+//	y=1060… method prose        — 24pt Roboto Light, gruvFgDark, wrapped
 
 const (
 	cocktailAPIURL = "https://www.thecocktaildb.com/api/json/v1/1/random.php"
 
-	cocktailImageX = 20
-	cocktailImageY = 540
-	cocktailImageW = 760
-	cocktailImageH = 480
+	cocktailLeft  = 80
+	cocktailRight = 720
 
-	cocktailNameX  = 80
-	cocktailNameY  = 1040
-	cocktailNameW  = 640
-	cocktailNameH  = 100
-	cocktailNameFS = 60
+	cocktailNameBaseY  = 540
+	cocktailNameSize   = 72
+	cocktailSubBaseY   = 615
+	cocktailSubSize    = 24
+	cocktailRuleY      = 660
+	cocktailRuleHalfW  = 100
 
-	cocktailIngX  = 80
-	cocktailIngY  = 1160
-	cocktailIngW  = 640
-	cocktailIngH  = 70
-	cocktailIngFS = 28
+	cocktailIngLabelY    = 730
+	cocktailIngLabelSize = 22
+	cocktailIngFirstY    = 778
+	cocktailIngRowH      = 42
+	cocktailIngSize      = 28
+	cocktailIngMeasureX  = cocktailLeft
+	cocktailIngNameX     = cocktailLeft + 180
+	cocktailIngMaxRows   = 6
 
-	ingredientMaxCount = 5
-	ingredientMaxLen   = 80
+	cocktailMethodLabelY    = 1020
+	cocktailMethodLabelSize = 22
+	cocktailMethodFirstY    = 1060
+	cocktailMethodSize      = 24
+	cocktailMethodLineH     = 32
+	cocktailMethodMaxLines  = 5
 )
 
 type cocktailResponse struct {
 	Drinks []map[string]any `json:"drinks"`
 }
 
+type recipeRow struct {
+	Measure    string
+	Ingredient string
+}
+
 func bakeCocktailBackground(ctx context.Context) error {
-	name, thumb, ingredients, err := fetchCocktail(ctx)
+	name, glass, category, instructions, rows, err := fetchCocktail(ctx)
 	if err != nil {
 		return fmt.Errorf("fetch cocktail: %w", err)
-	}
-
-	photo, err := fetchImage(ctx, thumb)
-	if err != nil {
-		return fmt.Errorf("download thumb: %w", err)
 	}
 
 	bgBytes, err := render.SceneBackground(render.SceneCocktail, render.FormatJPEG, time.Now())
@@ -238,18 +264,8 @@ func bakeCocktailBackground(ctx context.Context) error {
 		return fmt.Errorf("decode scene bg: %w", err)
 	}
 
-	pasteImage(canvas, photo, image.Rect(cocktailImageX, cocktailImageY,
-		cocktailImageX+cocktailImageW, cocktailImageY+cocktailImageH))
-
-	if err := drawCenteredText(canvas, name,
-		image.Rect(cocktailNameX, cocktailNameY, cocktailNameX+cocktailNameW, cocktailNameY+cocktailNameH),
-		cocktailNameFS, gruvFg); err != nil {
-		return fmt.Errorf("draw name: %w", err)
-	}
-	if err := drawCenteredText(canvas, ingredients,
-		image.Rect(cocktailIngX, cocktailIngY, cocktailIngX+cocktailIngW, cocktailIngY+cocktailIngH),
-		cocktailIngFS, gruvFgDark); err != nil {
-		return fmt.Errorf("draw ingredients: %w", err)
+	if err := drawCocktailCard(canvas, name, glass, category, instructions, rows); err != nil {
+		return fmt.Errorf("draw card: %w", err)
 	}
 
 	out, err := encodeJPEG(canvas)
@@ -263,53 +279,146 @@ func bakeCocktailBackground(ctx context.Context) error {
 	return nil
 }
 
-func fetchCocktail(ctx context.Context) (name, thumb, ingredients string, err error) {
+func drawCocktailCard(canvas *image.RGBA, name, glass, category, instructions string, rows []recipeRow) error {
+	proseRegular, err := render.LoadFont("RobotoCondensed-Regular.ttf")
+	if err != nil {
+		return fmt.Errorf("load prose-regular: %w", err)
+	}
+	proseLight, err := render.LoadFont("RobotoCondensed-Light.ttf")
+	if err != nil {
+		return fmt.Errorf("load prose-light: %w", err)
+	}
+	mono, err := render.LoadFont("Iosevka-Regular.ttf")
+	if err != nil {
+		return fmt.Errorf("load mono: %w", err)
+	}
+
+	nameFace, err := newFace(proseRegular, cocktailNameSize)
+	if err != nil {
+		return err
+	}
+	defer nameFace.Close()
+	drawCenteredOnCx(canvas, name, nameFace, (cocktailLeft+cocktailRight)/2, cocktailNameBaseY, gruvFg, cocktailRight-cocktailLeft)
+
+	subFace, err := newFace(mono, cocktailSubSize)
+	if err != nil {
+		return err
+	}
+	defer subFace.Close()
+	sub := cocktailSubhead(glass, category)
+	if sub != "" {
+		drawCenteredOnCx(canvas, sub, subFace, (cocktailLeft+cocktailRight)/2, cocktailSubBaseY, gruvFgDark, cocktailRight-cocktailLeft)
+	}
+
+	// Short hairline centred under the subhead.
+	cx := (cocktailLeft + cocktailRight) / 2
+	draw.Draw(canvas,
+		image.Rect(cx-cocktailRuleHalfW, cocktailRuleY, cx+cocktailRuleHalfW, cocktailRuleY+1),
+		&image.Uniform{gruvFgDark}, image.Point{}, draw.Src)
+
+	ingLabelFace, err := newFace(mono, cocktailIngLabelSize)
+	if err != nil {
+		return err
+	}
+	defer ingLabelFace.Close()
+	drawLeftAt(canvas, "INGREDIENTS", ingLabelFace, cocktailLeft, cocktailIngLabelY, gruvFgDark)
+
+	ingFace, err := newFace(proseRegular, cocktailIngSize)
+	if err != nil {
+		return err
+	}
+	defer ingFace.Close()
+	maxRows := cocktailIngMaxRows
+	if len(rows) < maxRows {
+		maxRows = len(rows)
+	}
+	for i := 0; i < maxRows; i++ {
+		y := cocktailIngFirstY + i*cocktailIngRowH
+		if rows[i].Measure != "" {
+			drawLeftAt(canvas, rows[i].Measure, ingFace, cocktailIngMeasureX, y, gruvFgDark)
+		}
+		drawLeftAt(canvas, rows[i].Ingredient, ingFace, cocktailIngNameX, y, gruvFg)
+	}
+
+	methodLabelFace, err := newFace(mono, cocktailMethodLabelSize)
+	if err != nil {
+		return err
+	}
+	defer methodLabelFace.Close()
+	drawLeftAt(canvas, "METHOD", methodLabelFace, cocktailLeft, cocktailMethodLabelY, gruvFgDark)
+
+	methodFace, err := newFace(proseLight, cocktailMethodSize)
+	if err != nil {
+		return err
+	}
+	defer methodFace.Close()
+	lines := wrapText(instructions, methodFace, cocktailRight-cocktailLeft, cocktailMethodMaxLines)
+	for i, line := range lines {
+		y := cocktailMethodFirstY + i*cocktailMethodLineH
+		drawLeftAt(canvas, line, methodFace, cocktailLeft, y, gruvFgDark)
+	}
+	return nil
+}
+
+// cocktailSubhead formats the glass / category subhead row. Either field
+// may be empty; if both are present they're joined with " · ".
+func cocktailSubhead(glass, category string) string {
+	glass = strings.TrimSpace(glass)
+	category = strings.TrimSpace(category)
+	switch {
+	case glass != "" && category != "":
+		return strings.ToLower(glass + " · " + category)
+	case glass != "":
+		return strings.ToLower(glass)
+	case category != "":
+		return strings.ToLower(category)
+	}
+	return ""
+}
+
+func fetchCocktail(ctx context.Context) (name, glass, category, instructions string, rows []recipeRow, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cocktailAPIURL, nil)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", nil, err
 	}
 	req.Header.Set("User-Agent", "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)")
 	client := &http.Client{Timeout: httpFetchTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return "", "", "", fmt.Errorf("http %d", resp.StatusCode)
+		return "", "", "", "", nil, fmt.Errorf("http %d", resp.StatusCode)
 	}
 	var body cocktailResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return "", "", "", err
+		return "", "", "", "", nil, err
 	}
 	if len(body.Drinks) == 0 {
-		return "", "", "", fmt.Errorf("no drinks in response")
+		return "", "", "", "", nil, fmt.Errorf("no drinks in response")
 	}
 	d := body.Drinks[0]
-	name = strSafe(d["strDrink"])
-	thumb = strSafe(d["strDrinkThumb"])
+	name = strings.TrimSpace(strSafe(d["strDrink"]))
+	glass = strings.TrimSpace(strSafe(d["strGlass"]))
+	category = strings.TrimSpace(strSafe(d["strCategory"]))
+	instructions = strings.TrimSpace(strSafe(d["strInstructions"]))
 
-	// Pull the 15 ingredient slots in order; the first empty one terminates.
-	var picked []string
+	// Pair the 15 ingredient slots with their matching measure slots; the
+	// first empty ingredient terminates the list.
 	for i := 1; i <= 15; i++ {
-		s := strings.TrimSpace(strSafe(d[fmt.Sprintf("strIngredient%d", i)]))
-		if s == "" {
+		ing := strings.TrimSpace(strSafe(d[fmt.Sprintf("strIngredient%d", i)]))
+		if ing == "" {
 			break
 		}
-		picked = append(picked, s)
-		if len(picked) >= ingredientMaxCount {
-			break
-		}
-		if len(strings.Join(picked, ", ")) >= ingredientMaxLen {
-			break
-		}
+		measure := strings.TrimSpace(strSafe(d[fmt.Sprintf("strMeasure%d", i)]))
+		rows = append(rows, recipeRow{Measure: measure, Ingredient: ing})
 	}
-	ingredients = strings.Join(picked, ", ")
 
-	if name == "" || thumb == "" {
-		return "", "", "", fmt.Errorf("missing fields: name=%q thumb=%q", name, thumb)
+	if name == "" {
+		return "", "", "", "", nil, fmt.Errorf("missing drink name")
 	}
-	return name, thumb, ingredients, nil
+	return name, glass, category, instructions, rows, nil
 }
 
 func strSafe(v any) string {
@@ -444,6 +553,97 @@ func drawCenteredText(canvas *image.RGBA, s string, rect image.Rectangle, sizePx
 	}
 	d.DrawString(s)
 	return nil
+}
+
+// newFace wraps opentype.NewFace with the common HintingFull / DPI 72
+// settings every baked-text helper here uses.
+func newFace(f *opentype.Font, sizePx int) (font.Face, error) {
+	return opentype.NewFace(f, &opentype.FaceOptions{
+		Size: float64(sizePx), DPI: 72, Hinting: font.HintingFull,
+	})
+}
+
+// drawCenteredOnCx paints s centred horizontally on cx with its baseline
+// at baselineY. maxW caps the rendered width; oversize strings are
+// ellipsised.
+func drawCenteredOnCx(canvas *image.RGBA, s string, face font.Face, cx, baselineY int, col color.RGBA, maxW int) {
+	if s == "" {
+		return
+	}
+	maxFx := fixed.I(maxW)
+	if font.MeasureString(face, s) > maxFx {
+		s = ellipsize(s, face, maxFx)
+	}
+	w := font.MeasureString(face, s)
+	dotX := fixed.I(cx) - w/2
+	(&font.Drawer{
+		Dst: canvas, Src: image.NewUniform(col), Face: face,
+		Dot: fixed.Point26_6{X: dotX, Y: fixed.I(baselineY)},
+	}).DrawString(s)
+}
+
+// drawLeftAt paints s with its left edge at x and its baseline at
+// baselineY. No truncation — callers pre-size strings to their slot.
+func drawLeftAt(canvas *image.RGBA, s string, face font.Face, x, baselineY int, col color.RGBA) {
+	if s == "" {
+		return
+	}
+	(&font.Drawer{
+		Dst: canvas, Src: image.NewUniform(col), Face: face,
+		Dot: fixed.Point26_6{X: fixed.I(x), Y: fixed.I(baselineY)},
+	}).DrawString(s)
+}
+
+// wrapText splits s into lines that each fit within maxW pixels in the
+// given face. Words longer than maxW are ellipsised on their own line.
+// Returns at most maxLines; the final line is ellipsised if input
+// would have wrapped further.
+func wrapText(s string, face font.Face, maxW, maxLines int) []string {
+	s = strings.TrimSpace(s)
+	if s == "" || maxLines <= 0 {
+		return nil
+	}
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return nil
+	}
+	maxFx := fixed.I(maxW)
+	var lines []string
+	var cur string
+	for _, w := range words {
+		candidate := cur
+		if candidate != "" {
+			candidate += " "
+		}
+		candidate += w
+		if font.MeasureString(face, candidate) <= maxFx {
+			cur = candidate
+			continue
+		}
+		// Doesn't fit: flush current line, start new with this word.
+		if cur != "" {
+			lines = append(lines, cur)
+			if len(lines) >= maxLines {
+				// Re-ellipsise the last line to include the overflow marker.
+				lines[len(lines)-1] = ellipsize(cur+" "+w+" …", face, maxFx)
+				return lines
+			}
+		}
+		// Single word too wide for the line — ellipsise it.
+		if font.MeasureString(face, w) > maxFx {
+			cur = ellipsize(w, face, maxFx)
+		} else {
+			cur = w
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		lines[maxLines-1] = ellipsize(lines[maxLines-1]+" …", face, maxFx)
+	}
+	return lines
 }
 
 // ellipsize trims s with a trailing "…" until it fits in maxW.

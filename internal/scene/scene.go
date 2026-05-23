@@ -44,7 +44,7 @@ type Mount struct {
 // SceneDuration is how long each scene holds the screen before the
 // driver picks the next one. The cadence used to be per-scene but
 // every scene now lives at the same rate so the variable was deleted.
-const SceneDuration = 60 * time.Second
+const SceneDuration = 3 * time.Minute
 
 // Scene is one rotating layout. Elements are the bottom-area DispList
 // entries (positions, fonts, colors); Widget supplies the raw string that

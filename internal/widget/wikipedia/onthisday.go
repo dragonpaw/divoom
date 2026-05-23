@@ -47,18 +47,11 @@ type otdResponse struct {
 	Events []otdEvent `json:"events"`
 }
 
-// monthNames maps a 1-indexed month to its English name. Lookup table
-// rather than time.Month().String() so we can build the header without
-// allocating a time.Time for today.
-var monthNames = [...]string{
-	"", "January", "February", "March", "April", "May", "June",
-	"July", "August", "September", "October", "November", "December",
-}
-
-// Fetch returns "On <Month> <DD>|<year>: <event text>" for a randomly
-// picked event from today's "on this day" feed. The header carries the
-// date label; the body carries the year and the event prose, joined by
-// a colon so a single-line layout reads naturally.
+// Fetch returns "<year>|<event text>" for a randomly picked event from
+// today's "on this day" feed. The scene surfaces year and prose as
+// separate visual elements (big mono accent + body prose); the device's
+// always-on header already carries today's date, so the widget no
+// longer emits a date label.
 func (o *OnThisDay) Fetch(ctx context.Context) (string, error) {
 	now := time.Now()
 	month := int(now.Month())
@@ -95,9 +88,7 @@ func (o *OnThisDay) Fetch(ctx context.Context) (string, error) {
 	o.mu.Unlock()
 
 	text := strings.TrimSpace(picked.Text)
-	header := fmt.Sprintf("On %s %d", monthNames[month], day)
-	body := fmt.Sprintf("%d: %s", picked.Year, text)
-	return header + "|" + body, nil
+	return fmt.Sprintf("%d|%s", picked.Year, text), nil
 }
 
 var _ widget.Widget = (*OnThisDay)(nil)

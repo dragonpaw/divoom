@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/dragonpaw/divoom/internal/frame"
 	"github.com/dragonpaw/divoom/internal/render"
@@ -22,9 +21,10 @@ const CanvasW = render.CanvasW
 // Each scene's layout is its own install, so re-using IDs across scenes is
 // fine; we keep the IDs distinct only within a single scene.
 const (
-	idDay    = 1
-	idTime   = 2
-	idFooter = 3
+	idDay     = 1
+	idTime    = 2
+	idFooter  = 3
+	idWeekend = 4
 
 	idSceneTitle = 9
 	idSceneMain  = 10
@@ -264,21 +264,36 @@ func timeColor(now time.Time) string {
 	return cOrange
 }
 
-// daysUntilWeekend returns the operator-footer countdown string. Mon-Fri
-// render as "weekend+Nd" (Mon=4, Tue=3, ..., Fri=0); Sat/Sun render as
-// "weekend".
-func daysUntilWeekend(now time.Time) string {
-	switch now.Weekday() {
+// weekendStatus returns the operator-footer right-hand string and its
+// FontColor. Weekend window is Friday 18:00 through Monday 03:00 (local
+// time) — inside it the text becomes "weekend!" in cYellow as a small
+// festive marker. Outside it, the row reverts to the dim countdown
+// "weekend+Nd" (Mon-Thu after 3am: 4..1 days; Fri before 6pm: +0d).
+func weekendStatus(now time.Time) (text, color string) {
+	wd := now.Weekday()
+	hour := now.Hour()
+	weekend := false
+	switch wd {
 	case time.Saturday, time.Sunday:
-		return "weekend"
-	default:
-		// Monday=1 ... Friday=5; 5 - weekday days until Saturday.
-		n := 5 - int(now.Weekday())
-		return fmt.Sprintf("weekend+%dd", n)
+		weekend = true
+	case time.Friday:
+		weekend = hour >= 18
+	case time.Monday:
+		weekend = hour < 3
 	}
+	if weekend {
+		return "weekend!", cYellow
+	}
+	// Outside the window — countdown to Saturday morning.
+	n := 5 - int(wd)
+	if n < 0 {
+		n = 0 // defensive; Friday-pre-6pm falls here as +0d
+	}
+	return fmt.Sprintf("weekend+%dd", n), cFgDark
 }
 
 func alwaysOn(now time.Time) []frame.DispElement {
+	weekendText, weekendColor := weekendStatus(now)
 	return []frame.DispElement{
 		{
 			ID: idDay, Type: "Text",
@@ -299,6 +314,8 @@ func alwaysOn(now time.Time) []frame.DispElement {
 			FontColor: timeColor(now),
 			BgColor:   cBgHard,
 		},
+		// Left half of the footer row — date / day-of-year / iso-week,
+		// dim mono left-aligned.
 		{
 			ID: idFooter, Type: "Text",
 			StartX: 40, StartY: 400, Width: 720, Height: 44,
@@ -307,11 +324,24 @@ func alwaysOn(now time.Time) []frame.DispElement {
 			FontID:    fontMono,
 			FontColor: cFgDark,
 			BgColor:   cBgHard,
-			TextMessage: fmt.Sprintf("%s  doy:%d  w:%d  %s",
+			TextMessage: fmt.Sprintf("%s  doy:%d  w:%d",
 				now.Format("2006-01-02"),
 				now.YearDay(),
-				isoWeek(now),
-				daysUntilWeekend(now)),
+				isoWeek(now)),
+		},
+		// Right half of the footer row — weekend status, right-aligned
+		// so it can carry its own colour (cYellow during the Fri 6pm →
+		// Mon 3am window, cFgDark otherwise) without recolouring the
+		// numeric metadata to its left.
+		{
+			ID: idWeekend, Type: "Text",
+			StartX: 40, StartY: 400, Width: 720, Height: 44,
+			Align:       1,
+			FontSize:    28,
+			FontID:      fontMono,
+			FontColor:   weekendColor,
+			BgColor:     cBgHard,
+			TextMessage: weekendText,
 		},
 	}
 }
@@ -370,41 +400,62 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 
 // --- github formatters ---
 //
-// Widget output: "<today_commits>|<streak_days>|<open_prs>", e.g. "3|42|7".
-// Each formatter pulls one segment and tags the right colour/label so the
-// scene's three rows read with their meaning attached.
+// Widget output: "<lifetime_contributions>|<total_prs>|<years_on_github>",
+// e.g. "14238|287|11". The hero row gets the lifetime contributions with
+// thousands separators; the two small stat rows render PRs and years
+// with their unit suffix.
 
-func githubCommits(raw string) (text, color string) {
+func githubLifetime(raw string) (text, color string) {
 	parts := strings.Split(raw, "|")
 	if len(parts) < 1 {
 		return "0", cFgDark
 	}
 	n, _ := strconv.Atoi(parts[0])
 	if n > 0 {
-		return parts[0], cGreen
+		return withThousands(n), cGreen
 	}
-	return parts[0], cFgDark
+	return "0", cFgDark
 }
 
-func githubStreak(raw string) (text, color string) {
+func githubTotalPRs(raw string) (text, color string) {
 	parts := strings.Split(raw, "|")
 	if len(parts) < 2 {
-		return "0d", cFgDark
+		return "0", cFg
 	}
 	n, _ := strconv.Atoi(parts[1])
-	c := cFgDark
-	if n > 7 {
-		c = cYellow
-	}
-	return parts[1] + "d streak", c
+	return withThousands(n), cFg
 }
 
-func githubPRs(raw string) (text, color string) {
+func githubYears(raw string) (text, color string) {
 	parts := strings.Split(raw, "|")
 	if len(parts) < 3 {
-		return "0 open PRs", cAqua
+		return "0", cFg
 	}
-	return parts[2] + " open PRs", cAqua
+	return parts[2], cFg
+}
+
+// withThousands inserts comma separators every three digits for the
+// large GitHub stats so "14238" reads as "14,238" at glance distance.
+func withThousands(n int) string {
+	s := strconv.Itoa(n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	rem := len(s) % 3
+	if rem > 0 {
+		b.WriteString(s[:rem])
+		if len(s) > rem {
+			b.WriteByte(',')
+		}
+	}
+	for i := rem; i < len(s); i += 3 {
+		b.WriteString(s[i : i+3])
+		if i+3 < len(s) {
+			b.WriteByte(',')
+		}
+	}
+	return b.String()
 }
 
 // --- markets formatters ---
@@ -417,11 +468,12 @@ func githubPRs(raw string) (text, color string) {
 // at activation time based on the sign of each percent value.
 
 // marketsSymbolPriceTargetWidth is the character budget for the headline
-// row at the chosen FontSize 80 / fontMono / 720px-wide track. Empirical
-// for Iosevka regular: each glyph ≈ 0.42 * FontSize wide, so 720 / 34 ≈ 21
-// chars fit comfortably; we pad to 21 columns so the price right-aligns
-// without overflowing.
-const marketsSymbolPriceTargetWidth = 21
+// row at the chosen FontSize 70 / fontMono / 720px-wide track. On-device
+// Iosevka glyphs measure ≈ 0.51 * FontSize wide (wider than the 0.42
+// initially estimated — QQQ + price wrapped at FS 80 / target 21), so
+// 720 / 36 ≈ 20 chars; 19 leaves a safety margin and still right-aligns
+// the price near the edge.
+const marketsSymbolPriceTargetWidth = 19
 
 // marketsSymbolPrice joins symbol + price with enough spaces between
 // them that the price ends near the right edge of the headline track.
@@ -1014,11 +1066,6 @@ type QuoteSceneOpts struct {
 	Tagline      string
 	TaglineColor string
 	HasAuthor    bool
-
-	// DropCapColor is the colour of the dynamic drop-cap letter
-	// rendered at the body's left margin for FamilyMarginalia. Ignored
-	// for other families. Empty defaults to cFgDark.
-	DropCapColor string
 }
 
 // QuoteScene returns the *scene.Scene for a promoted-quote layout. The
@@ -1074,28 +1121,17 @@ func quoteSceneFromSource(opts QuoteSceneOpts) *scene.Scene {
 }
 
 // quoteSceneMarginalia builds a page-of-a-book layout: body left-aligned
-// with a left margin (120px) leaving room for the dynamic drop cap,
-// attribution all-caps right-aligned at the bottom, optional tagline at
-// the bottom-LEFT to balance. The drop cap itself is a 90pt Text
-// DispElement set to the body's first letter (see marginaliaDropCap)
-// so it tracks the rotating quote instead of being a fixed monogram.
+// between the baked imprint rules, attribution all-caps right-aligned
+// at the bottom, optional tagline at the bottom-LEFT to balance. The
+// dynamic drop-cap was removed (read poorly at 90pt on the dim track —
+// see git history); the body now uses the full left margin and the
+// track lifts upward by ≈80px to fill the void the cap had occupied.
 func quoteSceneMarginalia(opts QuoteSceneOpts) *scene.Scene {
-	dropCapColor := opts.DropCapColor
-	if dropCapColor == "" {
-		dropCapColor = cFgDark
-	}
 	elements := []frame.DispElement{
-		quoteBodyLeft(idSceneSub1, 120, 600, 560, 540),
-		{
-			ID: idSceneSub4, Type: "Text",
-			StartX: 30, StartY: 580, Width: 90, Height: 110,
-			Align: 2, FontSize: 90, FontID: fontProseLight,
-			FontColor: dropCapColor, BgColor: cBgHard,
-		},
+		quoteBodyLeft(idSceneSub1, 80, 640, 480, 620),
 	}
 	mounts := []scene.Mount{
 		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBodyMarginalia},
-		{ID: idSceneSub4, Format: marginaliaDropCap, AllowEmpty: true},
 	}
 	if opts.HasAuthor {
 		elements = append(elements, frame.DispElement{
@@ -1158,20 +1194,6 @@ func quoteTagline(id int, text, color string, align, startY int) frame.DispEleme
 	}
 }
 
-// marginaliaDropCap returns the body's first non-whitespace rune,
-// upper-cased — the dynamic drop-cap letter for the Marginalia family
-// scenes. Returns "" for an empty body so the AllowEmpty mount hides
-// the drop-cap element rather than rendering a blank glyph box.
-func marginaliaDropCap(raw string) (text, color string) {
-	body, _ := pipeAt(1)(raw)
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return "", ""
-	}
-	r, _ := utf8.DecodeRuneInString(body)
-	return strings.ToUpper(string(r)), ""
-}
-
 // pipeAtUpper is pipeAt(i) wrapped in strings.ToUpper — used for the
 // attribution row of FromSource and Marginalia families, which the
 // design crit asked for in all-caps so it reads as a typographic mark
@@ -1192,10 +1214,12 @@ func vCenterQuoteBodyFromSource(text string, e frame.DispElement) frame.DispElem
 }
 
 // vCenterQuoteBodyMarginalia: track between the top imprint rule at
-// y=525 and the attribution row at y=1130. Slightly narrower text track
-// (120..720) — char-per-line estimate folds that in.
+// y=525 and the attribution row at y=1130. The drop-cap used to live
+// at the top of this track; with it removed, trackTop lifts from 560
+// to 480 so the body sits higher and the layout doesn't read as a
+// floating block in dead space.
 func vCenterQuoteBodyMarginalia(text string, e frame.DispElement) frame.DispElement {
-	return vCenterInTrack(text, e, 560, 1100, 28)
+	return vCenterInTrack(text, e, 480, 1100, 30)
 }
 
 // vCenterQuoteBodyTerminal: track between the top baked rule at y=535

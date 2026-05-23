@@ -168,6 +168,13 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		obs := rand.IntN(999) + 1
 		inst := catfactsInstitutions[rand.IntN(len(catfactsInstitutions))]
 		DrawCatfactsChrome(img, obs, inst)
+	case SceneCocktail:
+		// No scene glyph — the cocktail scene's body is painted at
+		// `divoom push` time by bakeCocktailBackground as a typographic
+		// recipe card (name, glass/category subhead, ingredient list,
+		// method). A martini-glass corner mark would crash into the
+		// METHOD prose, and the recipe typography carries the identity
+		// without it.
 	default:
 		drawSceneGlyph(img, scene)
 	}
@@ -411,6 +418,14 @@ type FamilyChrome struct {
 	// Used by the devil's dictionary scene whose aphorism body wants
 	// pull-quote decoration around it.
 	PunchlineOrnaments bool
+
+	// OmitSceneGlyph suppresses the scene-identity glyph that
+	// SceneFamilyBackground would otherwise bake into the body track.
+	// FamilyTerminal anchors the glyph at (620, 700) which sits inside
+	// the dense dictionary body — the curly-brace glyph showed through
+	// the jargon definition prose. Setting this true on scenes whose
+	// body fills that region keeps the shell prompt as the sole label.
+	OmitSceneGlyph bool
 }
 
 // SceneFamilyBackground builds the hero frame, paints the scene's glyph
@@ -420,8 +435,10 @@ type FamilyChrome struct {
 // SceneBackground.
 func SceneFamilyBackground(scene Scene, chrome FamilyChrome, format Format, now time.Time) ([]byte, error) {
 	img := buildHeroImage(now)
-	cx, cy := glyphAnchorFor(chrome.Family)
-	drawSceneGlyphAt(img, scene, cx, cy)
+	if !chrome.OmitSceneGlyph {
+		cx, cy := glyphAnchorFor(chrome.Family)
+		drawSceneGlyphAt(img, scene, cx, cy)
+	}
 	switch chrome.Family {
 	case FamilyFromSource:
 		drawFromSourceChrome(img, chrome.Header, chrome.Subheader)
@@ -543,18 +560,19 @@ func drawTILChrome(img *image.RGBA) {
 	const (
 		left            = 80
 		right           = CanvasW - 80
-		wordmarkBase    = 680
-		ruleY           = 735
-		ruleH           = 4
+		wordmarkBase    = 560
+		ruleY           = 595
+		ruleH           = 3
 		footerRuleY     = 1180
 		attributionBase = 1220
 	)
 	// Monumental "T I L" — each letter painted separately so the
-	// letter-spacing reads as a poster instead of a word. Spacing tuned
-	// empirically to consume roughly the full 640px text width.
+	// letter-spacing reads as a poster instead of a word. Wordmark
+	// shrunk from 180→120pt (and baseline lifted) to free vertical
+	// space for longer r/todayilearned titles in the body track.
 	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
 		face, err := opentype.NewFace(f, &opentype.FaceOptions{
-			Size: 180, DPI: 72, Hinting: font.HintingFull,
+			Size: 120, DPI: 72, Hinting: font.HintingFull,
 		})
 		if err == nil {
 			// Three letters across left..right with even spacing — anchor
@@ -1055,20 +1073,123 @@ func drawWeatherChrome(img *image.RGBA) {
 	drawLabelCentered(img, "RAIN", face, 613, baselineY, GruvFgDark)
 }
 
-// drawEasterEgg paints a giant gruvbox-yellow egg centred in the body
-// area. Built as an asymmetric ellipse (smaller radius on top, larger
-// below) so the curve reads as an egg rather than a figure-8. Big
-// enough to be the dominant visual feature of the scene since this is
-// the rarest rotation entry and earns the spotlight.
+// drawEasterEgg paints the rare-treat scene's centrepiece — a giant
+// gruvbox-yellow egg, a hairline zigzag crack across its upper third,
+// and a small "rare drop · ~1 in 200" caption beneath it. The body
+// Text renders DARK on the yellow (cBgHard on GruvYellow — a real
+// gruvbox pairing) so the text reads as printed on the egg rather
+// than floating above it.
+//
+// ryBot shrunk 320→280 so the egg + caption fit cleanly above the
+// scene rotator; the crack and caption together carry the "this is
+// the rare one" signal that the plain ellipse used to lack.
 func drawEasterEgg(img *image.RGBA) {
 	const (
 		cx    = CanvasW / 2
-		cy    = 870
+		cy    = 860
 		rx    = 250
 		ryTop = 250
-		ryBot = 320
+		ryBot = 280
 	)
 	fillEgg(img, cx, cy, rx, ryTop, ryBot, GruvYellow)
+	drawEasterCrack(img, cx, cy, rx, ryTop)
+	drawEasterCaption(img, "rare drop  ·  ~1 in 200", cx, 1210)
+}
+
+// drawEasterCrack draws a thin dark zigzag hairline across the upper
+// third of the egg — a chip in the shell that signals "rare drop"
+// without spelling it out. Built from a sequence of (x, y) waypoints
+// joined by 3-px-thick line segments so the crack reads at glance
+// distance. Y is anchored at egg-top + ryTop/3 (roughly one-third
+// down from the egg's apex).
+func drawEasterCrack(img *image.RGBA, cx, cy, rx, ryTop int) {
+	const (
+		thick = 3
+		amp   = 14 // zigzag vertical amplitude
+	)
+	yBase := ryTop / 3 // offset above cy
+	// Six waypoints across the egg's mid-upper band, alternating
+	// above/below yBase so the crack zig-zags.
+	xs := []int{
+		cx - rx*7/10,
+		cx - rx*4/10,
+		cx - rx*1/10,
+		cx + rx*2/10,
+		cx + rx*5/10,
+		cx + rx*8/10,
+	}
+	ys := []int{
+		cy - yBase + amp,
+		cy - yBase - amp,
+		cy - yBase + amp/2,
+		cy - yBase - amp,
+		cy - yBase + amp,
+		cy - yBase - amp/2,
+	}
+	for i := 0; i < len(xs)-1; i++ {
+		drawThickLine(img, xs[i], ys[i], xs[i+1], ys[i+1], thick, GruvBgHard)
+	}
+}
+
+// drawEasterCaption bakes a small dim mono caption centred on (cx,
+// baselineY). Used for the "rare drop" footer that announces the
+// scene's 0.5% weight.
+func drawEasterCaption(img *image.RGBA, s string, cx, baselineY int) {
+	f, err := LoadFont("Iosevka-Regular.ttf")
+	if err != nil {
+		slog.Warn("easter caption: font load failed", "err", err)
+		return
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size: 22, DPI: 72, Hinting: font.HintingFull,
+	})
+	if err != nil {
+		slog.Warn("easter caption: face init failed", "err", err)
+		return
+	}
+	defer face.Close()
+	drawLabelCentered(img, s, face, cx, baselineY, GruvFgDark)
+}
+
+// drawThickLine paints a width-thick line from (x0, y0) to (x1, y1)
+// using a Bresenham walk that stamps a small filled rect per pixel
+// step. Thickness is implemented as a thick×thick square brush; not
+// perfectly round but invisible at this scale.
+func drawThickLine(img *image.RGBA, x0, y0, x1, y1, thick int, c color.RGBA) {
+	dx := x1 - x0
+	if dx < 0 {
+		dx = -dx
+	}
+	dy := -(y1 - y0)
+	if -dy < 0 {
+		dy = y1 - y0
+	}
+	sx, sy := 1, 1
+	if x0 > x1 {
+		sx = -1
+	}
+	if y0 > y1 {
+		sy = -1
+	}
+	err := dx + dy
+	half := thick / 2
+	for {
+		draw.Draw(img,
+			image.Rect(x0-half, y0-half, x0-half+thick, y0-half+thick),
+			&image.Uniform{c}, image.Point{}, draw.Src)
+		if x0 == x1 && y0 == y1 {
+			return
+		}
+		e2 := 2 * err
+		if e2 >= dy {
+			err += dy
+			x0 += sx
+		}
+		if e2 <= dx {
+			err += dx
+			y0 += sy
+		}
+	}
 }
 
 // fillEgg rasterises a filled egg shape — an ellipse with a smaller
@@ -1640,59 +1761,53 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 			&image.Uniform{c}, image.Point{}, draw.Src)
 
 	case SceneOnThisDay:
-		// Analog clock face — the "this moment in history" motif. Built
-		// as a thick ring (outer disc minus an inner disc in bg-hard),
-		// four cardinal hour ticks poking inward from the ring, a short
-		// hour hand pointing up-right (≈ 10 o'clock) and a longer minute
-		// hand pointing up (12 o'clock), plus a tiny hub disc covering
-		// the hand pivot. Total footprint ~200×200.
+		// Tear-off calendar page — "an entry in the historical record"
+		// motif. A clock signified "current time," which the always-on
+		// header already shows; the calendar page signifies a dated
+		// event without overlapping with the live clock. Two binder
+		// ring tabs poke above a chunky top header band; below sits a
+		// hollow page body with a single ruled line suggesting "an
+		// entry written here." Total footprint ~200×200, no date
+		// glyphs baked in so the bg never needs re-upload.
 		const (
-			faceR    = 100 // outer ring radius
-			faceThk  = 14  // ring band thickness
-			tickLen  = 16  // hour tick length (inward from ring)
-			tickThk  = 8   // hour tick thickness
-			hubR     = 8   // central pivot disc
-			minHandLen = 70 // minute hand: straight up
-			minHandThk = 8
-			hrHandThk  = 10
-			hrHandDX   = 32  // x offset of hour hand tip (rightward)
-			hrHandDY   = -38 // y offset of hour hand tip (upward)
+			pageHalfW = 90 // half-width of the page rectangle
+			pageTop   = -100
+			pageBot   = 100
+			headerH   = 36 // height of the filled top header band
+			ringW     = 14
+			ringH     = 18
+			ringInset = 32 // horizontal offset of each ring from cx
+			borderThk = 6  // page-body border thickness
+			ruleY     = 30 // y-offset of the single ruled "entry" line
+			ruleHalfW = 50
+			ruleThk   = 6
 		)
-		// Outer ring: filled disc, then carve out the inside.
-		fillCircle(img, cx, cy, faceR, c)
-		fillCircle(img, cx, cy, faceR-faceThk, GruvBgHard)
-		// Four hour ticks (12 / 3 / 6 / 9) — short bars pointing inward
-		// from the inner ring edge.
-		innerR := faceR - faceThk
-		// 12 o'clock (top)
+		// Two binder ring tabs sitting above the header band.
+		for _, dx := range []int{-ringInset, ringInset} {
+			draw.Draw(img,
+				image.Rect(cx+dx-ringW/2, cy+pageTop-ringH, cx+dx+ringW/2, cy+pageTop),
+				&image.Uniform{c}, image.Point{}, draw.Src)
+		}
+		// Filled top header band.
 		draw.Draw(img,
-			image.Rect(cx-tickThk/2, cy-innerR, cx+tickThk/2, cy-innerR+tickLen),
+			image.Rect(cx-pageHalfW, cy+pageTop, cx+pageHalfW, cy+pageTop+headerH),
 			&image.Uniform{c}, image.Point{}, draw.Src)
-		// 6 o'clock (bottom)
+		// Page body: filled rect, then carve out the inside so only a
+		// thick border remains (same outer-minus-inner pattern as the
+		// clock ring this replaced).
 		draw.Draw(img,
-			image.Rect(cx-tickThk/2, cy+innerR-tickLen, cx+tickThk/2, cy+innerR),
+			image.Rect(cx-pageHalfW, cy+pageTop+headerH, cx+pageHalfW, cy+pageBot),
 			&image.Uniform{c}, image.Point{}, draw.Src)
-		// 3 o'clock (right)
 		draw.Draw(img,
-			image.Rect(cx+innerR-tickLen, cy-tickThk/2, cx+innerR, cy+tickThk/2),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		// 9 o'clock (left)
+			image.Rect(
+				cx-pageHalfW+borderThk, cy+pageTop+headerH+borderThk,
+				cx+pageHalfW-borderThk, cy+pageBot-borderThk,
+			),
+			&image.Uniform{GruvBgHard}, image.Point{}, draw.Src)
+		// Single ruled "entry" line inside the page body.
 		draw.Draw(img,
-			image.Rect(cx-innerR, cy-tickThk/2, cx-innerR+tickLen, cy+tickThk/2),
+			image.Rect(cx-ruleHalfW, cy+ruleY-ruleThk/2, cx+ruleHalfW, cy+ruleY+ruleThk/2),
 			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Minute hand straight up.
-		draw.Draw(img,
-			image.Rect(cx-minHandThk/2, cy-minHandLen, cx+minHandThk/2, cy),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Hour hand: a thick parallelogram from the hub to the upper-right.
-		fillPolygon(img, []struct{ x, y int }{
-			{cx - hrHandThk/2, cy - hrHandThk/2},
-			{cx + hrHandThk/2, cy + hrHandThk/2},
-			{cx + hrHandDX + hrHandThk/2, cy + hrHandDY + hrHandThk/2},
-			{cx + hrHandDX - hrHandThk/2, cy + hrHandDY - hrHandThk/2},
-		}, c)
-		// Central hub disc covering the pivot.
-		fillCircle(img, cx, cy, hubR, c)
 
 	case SceneWordnik:
 		// Open book (📖). Same mask-overpaint treatment as the devil /

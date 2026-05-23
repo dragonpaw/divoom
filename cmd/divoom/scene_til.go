@@ -23,8 +23,8 @@ func tilScene(widgets map[string]widget.Widget) *scene.Scene {
 		Elements: []frame.DispElement{
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 80, StartY: 770, Width: 640, Height: 380,
-				Align: 0, FontSize: 42, FontID: fontProse,
+				StartX: 80, StartY: 630, Width: 640, Height: 540,
+				Align: 0, FontSize: 34, FontID: fontProse,
 				FontColor: cFg, BgColor: cBgHard,
 			},
 		},

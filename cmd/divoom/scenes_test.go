@@ -5,26 +5,39 @@ import (
 	"time"
 )
 
-// TestDaysUntilWeekend covers every weekday and both weekend days, so
-// the operator footer never silently drifts when the helper changes.
-func TestDaysUntilWeekend(t *testing.T) {
-	// 2026-05-18 is a Monday → through 2026-05-24 (Sunday).
-	base := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
-	want := []string{
-		"weekend+4d", // Mon
-		"weekend+3d", // Tue
-		"weekend+2d", // Wed
-		"weekend+1d", // Thu
-		"weekend+0d", // Fri
-		"weekend",    // Sat
-		"weekend",    // Sun
+// TestWeekendStatus exercises the Friday-18:00 → Monday-03:00 weekend
+// window plus the dim countdown that runs outside it.
+func TestWeekendStatus(t *testing.T) {
+	cases := []struct {
+		name      string
+		when      time.Time
+		wantText  string
+		wantColor string
+	}{
+		// Outside the window — dim countdown.
+		{"mon noon", time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC), "weekend+4d", cFgDark},
+		{"tue noon", time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC), "weekend+3d", cFgDark},
+		{"wed noon", time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC), "weekend+2d", cFgDark},
+		{"thu noon", time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC), "weekend+1d", cFgDark},
+		{"fri noon (pre-6pm)", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC), "weekend+0d", cFgDark},
+		{"fri 5:59pm", time.Date(2026, 5, 22, 17, 59, 0, 0, time.UTC), "weekend+0d", cFgDark},
+		// Inside the window — yellow "weekend!".
+		{"fri 6pm sharp", time.Date(2026, 5, 22, 18, 0, 0, 0, time.UTC), "weekend!", cYellow},
+		{"fri 11pm", time.Date(2026, 5, 22, 23, 0, 0, 0, time.UTC), "weekend!", cYellow},
+		{"sat noon", time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC), "weekend!", cYellow},
+		{"sun noon", time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC), "weekend!", cYellow},
+		{"mon 2:59am", time.Date(2026, 5, 25, 2, 59, 0, 0, time.UTC), "weekend!", cYellow},
+		// Back to countdown at 3am Monday.
+		{"mon 3am sharp", time.Date(2026, 5, 25, 3, 0, 0, 0, time.UTC), "weekend+4d", cFgDark},
 	}
-	for i, w := range want {
-		d := base.AddDate(0, 0, i)
-		if got := daysUntilWeekend(d); got != w {
-			t.Errorf("daysUntilWeekend(%s = %s) = %q, want %q",
-				d.Format("2006-01-02"), d.Weekday(), got, w)
-		}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			text, color := weekendStatus(c.when)
+			if text != c.wantText || color != c.wantColor {
+				t.Errorf("weekendStatus(%s) = (%q, %q), want (%q, %q)",
+					c.when.Format("Mon 15:04"), text, color, c.wantText, c.wantColor)
+			}
+		})
 	}
 }
 
@@ -477,13 +490,13 @@ func TestMarketsSymbolPrice(t *testing.T) {
 		{
 			name: "qqq with price",
 			raw:  "QQQ|$499.32|+1.2|+5.0|▁▂▃|2026-05-20",
-			// 21 chars total: "QQQ" (3) + pad + "$499.32" (7) = 21 → pad 11.
-			want: "QQQ           $499.32",
+			// 19 chars total: "QQQ" (3) + pad + "$499.32" (7) = 19 → pad 9.
+			want: "QQQ         $499.32",
 		},
 		{
 			name: "long symbol still gets at least one space",
 			raw:  "REALLYLONGSYM|$1,234,567.89|+1|+1|.|2026-05-20",
-			// 13 + 12 = 25 > 21 → pad clamps to 1.
+			// 13 + 12 = 25 > 19 → pad clamps to 1.
 			want: "REALLYLONGSYM $1,234,567.89",
 		},
 		{
@@ -494,8 +507,8 @@ func TestMarketsSymbolPrice(t *testing.T) {
 		{
 			name: "single-segment raw (no price)",
 			raw:  "QQQ",
-			// 21 - 3 - 0 = 18 spaces
-			want: "QQQ                  ",
+			// 19 - 3 - 0 = 16 spaces
+			want: "QQQ                ",
 		},
 	}
 	for _, c := range cases {

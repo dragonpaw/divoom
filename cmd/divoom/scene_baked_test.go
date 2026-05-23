@@ -59,7 +59,7 @@ func TestBakedCompositeOffline(t *testing.T) {
 		t.Logf("wrote /tmp/baked_nasa.jpg (%d bytes)", len(out))
 	}
 
-	// Cocktail composite
+	// Cocktail composite — typographic recipe card (no photo).
 	bgBytes, err = render.SceneBackground(render.SceneCocktail, render.FormatJPEG, time.Now())
 	if err != nil {
 		t.Fatalf("scene bg: %v", err)
@@ -68,12 +68,15 @@ func TestBakedCompositeOffline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode bg: %v", err)
 	}
-	pasteImage(canvas, src, image.Rect(cocktailImageX, cocktailImageY, cocktailImageX+cocktailImageW, cocktailImageY+cocktailImageH))
-	if err := drawCenteredText(canvas, "Negroni", image.Rect(cocktailNameX, cocktailNameY, cocktailNameX+cocktailNameW, cocktailNameY+cocktailNameH), cocktailNameFS, gruvFg); err != nil {
-		t.Fatalf("draw name: %v", err)
+	rows := []recipeRow{
+		{Measure: "1 oz", Ingredient: "Gin"},
+		{Measure: "1 oz", Ingredient: "Campari"},
+		{Measure: "1 oz", Ingredient: "Sweet Vermouth"},
+		{Measure: "", Ingredient: "Orange peel"},
 	}
-	if err := drawCenteredText(canvas, "Gin, Campari, Sweet Vermouth, Orange Peel", image.Rect(cocktailIngX, cocktailIngY, cocktailIngX+cocktailIngW, cocktailIngY+cocktailIngH), cocktailIngFS, gruvFgDark); err != nil {
-		t.Fatalf("draw ing: %v", err)
+	instructions := "Stir all ingredients with ice in a mixing glass. Strain into a chilled rocks glass over a large ice cube. Garnish with an orange peel."
+	if err := drawCocktailCard(canvas, "Negroni", "Old-fashioned glass", "Ordinary Drink", instructions, rows); err != nil {
+		t.Fatalf("draw card: %v", err)
 	}
 	out, err = encodeJPEG(canvas)
 	if err != nil {

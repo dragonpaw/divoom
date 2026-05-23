@@ -105,10 +105,11 @@ var quoteSceneRegistry = []struct {
 		Name: "jargon", Scene: render.SceneJargon, BgPath: bgJargon,
 		ChromeFor: func(now time.Time) render.FamilyChrome {
 			return render.FamilyChrome{
-				Family:       FamilyTerminal,
-				ShellPrompt:  "$ jargon",
-				SourceFooter: "source: catb.org/jargon v4.4.7",
-				AuthorFooter: "author: Eric S. Raymond et al",
+				Family:         FamilyTerminal,
+				ShellPrompt:    "$ jargon",
+				SourceFooter:   "source: catb.org/jargon v4.4.7",
+				AuthorFooter:   "author: Eric S. Raymond et al",
+				OmitSceneGlyph: true,
 			}
 		},
 	},

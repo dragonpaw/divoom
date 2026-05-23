@@ -7,13 +7,14 @@ import (
 )
 
 // "Did you know?" — promoted out of the whimsy rotator into its own
-// scene so the bold question-mark glyph in the bottom-right corner
-// gets to be the dominant visual signature. One body Text for the
-// fact prose; the "did you know?" header from the widget's
-// "did you know?|<body>" output is dropped — the glyph carries the
-// label work. Element count 4 (3 top + 1 body) collides with the
-// rare easter scene and catfacts; Driver.pick()'s same-count rule
-// blocks direct transitions between them, which is fine.
+// scene so the question-mark glyph baked into the bottom-right of
+// the bg can do label duty alongside the small sceneTitle row.
+// The widget emits "did you know?|<body>"; pipeAt(1) drops the
+// header half and renders only the fact prose in the body track.
+//
+// Element count: sceneTitle + body = 2 scene Text + always-on 2
+// Text + 1 Time = 4 Text + 1 Time (5 total). Same-count collisions
+// are handled by Driver.pick()'s never-same-count rule.
 func didyouknowScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "didyouknow",

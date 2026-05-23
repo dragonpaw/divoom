@@ -29,7 +29,7 @@ func marketsScene(widgets map[string]widget.Widget) *scene.Scene {
 			{
 				ID: idSceneMain, Type: "Text",
 				StartX: 40, StartY: 540, Width: 720, Height: 120,
-				Align: 0, FontSize: 80, FontID: fontMono,
+				Align: 0, FontSize: 70, FontID: fontMono,
 				FontColor: cFg, BgColor: cBgHard,
 			},
 			// Week percent badge — "▲ +1.2 %" / "▼ -3.7 %" / "· 0 %".

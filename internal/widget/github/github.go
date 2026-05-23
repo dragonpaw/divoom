@@ -1,9 +1,9 @@
-// Package github fetches a small "today on GitHub" activity summary for a
-// configured user: how many commits they made today, how long their
-// current daily-contribution streak is, and how many of their open PRs
-// are still open. Emits a single pipe-separated string
-// "<today_commits>|<streak_days>|<open_prs>" that the github scene splits
-// across three text rows.
+// Package github fetches a lifetime-stats summary for the configured
+// user: total contributions across every year of the account's
+// existence, total PRs authored across all repos, and how many years
+// the account has been on GitHub. Emits a single pipe-separated string
+// "<lifetime_contributions>|<total_prs>|<years_on_github>" that the
+// github scene splits across hero + two small stats rows.
 //
 // Auth is mandatory: the search and GraphQL endpoints require a token,
 // and the unauthenticated REST quota (60 req/hr) is too small for a
@@ -26,16 +26,22 @@ import (
 )
 
 const (
-	restSearchCommits = "https://api.github.com/search/commits"
-	restSearchIssues  = "https://api.github.com/search/issues"
-	graphqlEndpoint   = "https://api.github.com/graphql"
-	userAgent         = "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)"
+	restSearchIssues = "https://api.github.com/search/issues"
+	graphqlEndpoint  = "https://api.github.com/graphql"
+	userAgent        = "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)"
 
-	// Cache TTL keeps API usage well under the 5000 req/hr authed limit:
-	// the scene driver fetches on every 5-min refresh cycle, so a 5-min
-	// cache means at most one Fetch per cycle even if a future caller
-	// hits the widget more aggressively.
-	cacheTTL = 5 * time.Minute
+	// Cache TTL keeps API usage well under the 5000 req/hr authed limit.
+	// Lifetime stats change slowly (only new contributions add to the
+	// total, never subtract), so a longer cache is fine — refresh once
+	// an hour is more than enough granularity for a wall display.
+	cacheTTL = 1 * time.Hour
+
+	// githubFoundingYear bounds the alias-per-year lifetime contributions
+	// query. Years before the account existed return 0 contributions
+	// from the GraphQL API, so it's harmless to query them — and it
+	// lets us issue a single GraphQL roundtrip with one alias per year
+	// instead of doing a createdAt fetch first.
+	githubFoundingYear = 2008
 )
 
 // Widget produces the github scene's text. User and Token are captured at
@@ -64,9 +70,10 @@ func New(user, token string) *Widget {
 
 func (w *Widget) Name() string { return "github/activity" }
 
-// Fetch returns "<today_commits>|<streak_days>|<open_prs>". Results are
-// cached for cacheTTL; concurrent callers wait on the same mutex so we
-// only ever have one in-flight Fetch at a time per widget instance.
+// Fetch returns "<lifetime_contributions>|<total_prs>|<years_on_github>".
+// Results are cached for cacheTTL; concurrent callers wait on the same
+// mutex so we only ever have one in-flight Fetch at a time per widget
+// instance.
 func (w *Widget) Fetch(ctx context.Context) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -74,55 +81,30 @@ func (w *Widget) Fetch(ctx context.Context) (string, error) {
 		return w.cached, w.cachedErr
 	}
 
-	commits, cerr := w.todayCommits(ctx)
-	streak, serr := w.currentStreak(ctx)
-	prs, perr := w.openPRs(ctx)
+	contributions, years, lerr := w.lifetimeContributions(ctx)
+	prs, perr := w.totalPRs(ctx)
 
 	// If every call failed, surface the first error so the driver can log
 	// it and leave the previous cached value on screen. If at least one
 	// succeeded, render what we have (zeros for the failed segments).
-	if cerr != nil && serr != nil && perr != nil {
+	if lerr != nil && perr != nil {
 		w.lastFetch = time.Now()
 		w.cached = ""
-		w.cachedErr = fmt.Errorf("github: %w", cerr)
+		w.cachedErr = fmt.Errorf("github: %w", lerr)
 		return w.cached, w.cachedErr
 	}
 
-	out := fmt.Sprintf("%d|%d|%d", commits, streak, prs)
+	out := fmt.Sprintf("%d|%d|%d", contributions, prs, years)
 	w.lastFetch = time.Now()
 	w.cached = out
 	w.cachedErr = nil
 	return out, nil
 }
 
-// todayCommits returns the number of commits authored by the configured
-// user since 00:00 UTC today, via the REST /search/commits endpoint.
-func (w *Widget) todayCommits(ctx context.Context) (int, error) {
-	// Use UTC so the day boundary matches GitHub's own search semantics.
-	since := time.Now().UTC().Format("2006-01-02")
-	q := fmt.Sprintf("author:%s author-date:>=%s", w.User, since)
-	url := restSearchCommits + "?per_page=1&q=" + queryEscape(q)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, err
-	}
-	w.setAuth(req)
-	// Commit search needs the cloak-preview Accept header on older API
-	// versions; harmless on current ones.
-	req.Header.Set("Accept", "application/vnd.github.cloak-preview+json")
-	var body struct {
-		TotalCount int `json:"total_count"`
-	}
-	if err := w.do(req, &body); err != nil {
-		return 0, fmt.Errorf("today commits: %w", err)
-	}
-	return body.TotalCount, nil
-}
-
-// openPRs returns the count of open pull requests authored by the user
-// across all repositories, via the REST /search/issues endpoint.
-func (w *Widget) openPRs(ctx context.Context) (int, error) {
-	q := fmt.Sprintf("is:open author:%s type:pr", w.User)
+// totalPRs returns the lifetime count of PRs authored by the user
+// (open + merged + closed), via the REST /search/issues endpoint.
+func (w *Widget) totalPRs(ctx context.Context) (int, error) {
+	q := fmt.Sprintf("author:%s type:pr", w.User)
 	url := restSearchIssues + "?per_page=1&q=" + queryEscape(q)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -133,108 +115,95 @@ func (w *Widget) openPRs(ctx context.Context) (int, error) {
 		TotalCount int `json:"total_count"`
 	}
 	if err := w.do(req, &body); err != nil {
-		return 0, fmt.Errorf("open prs: %w", err)
+		return 0, fmt.Errorf("total prs: %w", err)
 	}
 	return body.TotalCount, nil
 }
 
-// currentStreak walks the GraphQL contribution calendar from today
-// backward and counts consecutive days with at least one contribution.
-// Today counts when it has contributions; if today has zero we step
-// straight back to yesterday so the streak doesn't reset until a full
-// missed day has passed.
-func (w *Widget) currentStreak(ctx context.Context) (int, error) {
-	const query = `query($login: String!) {
-  user(login: $login) {
-    contributionsCollection {
-      contributionCalendar {
-        weeks {
-          contributionDays {
-            date
-            contributionCount
-          }
-        }
-      }
-    }
-  }
-}`
+// lifetimeContributions issues one GraphQL request with one alias per
+// year from githubFoundingYear to the current year, summing
+// contributionCalendar.totalContributions across all aliases. Pre-
+// account years return 0 from the API, so no createdAt-first roundtrip
+// is needed. Also returns years-on-github computed from user.createdAt
+// (year delta — partial years round down).
+func (w *Widget) lifetimeContributions(ctx context.Context) (contributions, years int, err error) {
+	currentYear := time.Now().UTC().Year()
+
+	// Build the query with one alias per year: y2008, y2009, ..., yYYYY.
+	var b strings.Builder
+	b.WriteString("query($login: String!) {\n")
+	b.WriteString("  user(login: $login) {\n")
+	b.WriteString("    createdAt\n")
+	for y := githubFoundingYear; y <= currentYear; y++ {
+		fmt.Fprintf(&b,
+			"    y%d: contributionsCollection(from: \"%d-01-01T00:00:00Z\", to: \"%d-12-31T23:59:59Z\") { contributionCalendar { totalContributions } }\n",
+			y, y, y)
+	}
+	b.WriteString("  }\n")
+	b.WriteString("}\n")
+
 	payload := map[string]any{
-		"query":     query,
+		"query":     b.String(),
 		"variables": map[string]any{"login": w.User},
 	}
 	buf, err := json.Marshal(payload)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, graphqlEndpoint, bytes.NewReader(buf))
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	w.setAuth(req)
 	req.Header.Set("Content-Type", "application/json")
 
+	// Generic decode: the per-year aliases are dynamic, so unmarshal into
+	// a map and walk the alias keys.
 	var body struct {
 		Data struct {
-			User struct {
-				ContributionsCollection struct {
-					ContributionCalendar struct {
-						Weeks []struct {
-							ContributionDays []struct {
-								Date              string `json:"date"`
-								ContributionCount int    `json:"contributionCount"`
-							} `json:"contributionDays"`
-						} `json:"weeks"`
-					} `json:"contributionCalendar"`
-				} `json:"contributionsCollection"`
-			} `json:"user"`
+			User map[string]json.RawMessage `json:"user"`
 		} `json:"data"`
 		Errors []struct {
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
 	if err := w.do(req, &body); err != nil {
-		return 0, fmt.Errorf("streak: %w", err)
+		return 0, 0, fmt.Errorf("lifetime: %w", err)
 	}
 	if len(body.Errors) > 0 {
-		return 0, fmt.Errorf("streak: graphql: %s", body.Errors[0].Message)
+		return 0, 0, fmt.Errorf("lifetime: graphql: %s", body.Errors[0].Message)
 	}
 
-	// Flatten weeks into a single date-ordered slice of (date, count).
-	type day struct {
-		date  string
-		count int
-	}
-	var days []day
-	for _, wk := range body.Data.User.ContributionsCollection.ContributionCalendar.Weeks {
-		for _, d := range wk.ContributionDays {
-			days = append(days, day{d.Date, d.ContributionCount})
+	// Parse createdAt for years-on-github.
+	if raw, ok := body.Data.User["createdAt"]; ok {
+		var createdAt string
+		if err := json.Unmarshal(raw, &createdAt); err == nil && createdAt != "" {
+			if t, perr := time.Parse(time.RFC3339, createdAt); perr == nil {
+				years = currentYear - t.UTC().Year()
+				if years < 0 {
+					years = 0
+				}
+			}
 		}
-	}
-	if len(days) == 0 {
-		return 0, nil
 	}
 
-	// Walk from the latest day backward. The calendar may include future
-	// days for the current week with count=0 — skip those at the head so
-	// the count starts from today (or the last completed day).
-	today := time.Now().UTC().Format("2006-01-02")
-	i := len(days) - 1
-	for i >= 0 && days[i].date > today {
-		i--
+	// Sum totalContributions across every per-year alias.
+	type yearBlock struct {
+		ContributionCalendar struct {
+			TotalContributions int `json:"totalContributions"`
+		} `json:"contributionCalendar"`
 	}
-	// If today has zero contributions, allow the streak to start from
-	// yesterday — a day in progress doesn't break the streak.
-	if i >= 0 && days[i].date == today && days[i].count == 0 {
-		i--
-	}
-	streak := 0
-	for ; i >= 0; i-- {
-		if days[i].count == 0 {
-			break
+	for key, raw := range body.Data.User {
+		if !strings.HasPrefix(key, "y") {
+			continue
 		}
-		streak++
+		var yb yearBlock
+		if err := json.Unmarshal(raw, &yb); err != nil {
+			continue
+		}
+		contributions += yb.ContributionCalendar.TotalContributions
 	}
-	return streak, nil
+	return contributions, years, nil
 }
 
 // setAuth attaches the standard GitHub headers, including the token. The
