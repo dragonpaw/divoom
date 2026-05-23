@@ -1012,65 +1012,49 @@ func drawPunchlineOrnaments(img *image.RGBA) {
 	drawLabelLeft(img, "”", face, 600, 1080, GruvFgDark)
 }
 
-// drawWeatherChrome paints the console-strip dividers and the three
-// column labels (AIR / HUMIDITY / RAIN) into the weather bg. The labels
-// are baked in here instead of carried as device Text elements so the
-// scene stays at the device's six-element cap with the live stat values.
+// drawWeatherChrome bakes the weather scene's static chrome: a small
+// "weather" title row at y=480 (replacing the device sceneTitle Text
+// element so the scene stays at the device's 6-Text cap) and a pair
+// of hairlines bracketing the bottom strip where the dynamic stat
+// row renders.
 //
-// Layout: two horizontal hairlines (y=985, y=1095) bracket a 110px-tall
-// stats row, split into three equal-width columns by two vertical
-// hairlines at x=293 and x=506. Each column's label sits centred just
-// below the top hairline.
+// Three separate per-column values (AIR / HUMIDITY / RAIN) used to
+// live here; they're now folded into a single combined Text element
+// driven by weatherStrip, so the chrome only needs to mark the strip
+// region — no column labels or vertical dividers required.
 func drawWeatherChrome(img *image.RGBA) {
 	const (
-		colLeft   = 80
-		colRight  = 720
-		divider1X = 293
-		divider2X = 506
-		topY      = 985
-		botY      = 1095
-		ruleInset = 3 // pull vertical rules in from the horizontals
+		colLeft = 80
+		colRight = 720
+		stripTopY = 985
+		stripBotY = 1095
 	)
-	// Top + bottom horizontal hairlines, 1px tall.
+	// Top + bottom horizontal hairlines, 1px tall — bracket the
+	// strip element below.
 	draw.Draw(img,
-		image.Rect(colLeft, topY, colRight, topY+1),
+		image.Rect(colLeft, stripTopY, colRight, stripTopY+1),
 		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
 	draw.Draw(img,
-		image.Rect(colLeft, botY, colRight, botY+1),
-		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
-	// Two vertical hairlines splitting the stats row into three columns.
-	draw.Draw(img,
-		image.Rect(divider1X, topY+ruleInset, divider1X+1, botY-ruleInset),
-		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
-	draw.Draw(img,
-		image.Rect(divider2X, topY+ruleInset, divider2X+1, botY-ruleInset),
+		image.Rect(colLeft, stripBotY, colRight, stripBotY+1),
 		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
 
-	// Column labels — Roboto Condensed Light, dim, centred in each
-	// column with baseline just below the top rule. Failure to load the
-	// font is logged and swallowed: the lines + values are still
-	// readable without labels, so a missing fonts/ dir shouldn't make
-	// the whole render fail.
+	// Baked "weather" title — Roboto Condensed Light 26pt cFgDark
+	// centred at y=480, matching the cmd/divoom sceneTitle helper so
+	// the title row is visually identical to every other scene.
 	f, err := LoadFont("RobotoCondensed-Light.ttf")
 	if err != nil {
-		slog.Warn("weather chrome: font load failed; skipping labels", "err", err)
+		slog.Warn("weather chrome: font load failed; skipping title", "err", err)
 		return
 	}
 	face, err := opentype.NewFace(f, &opentype.FaceOptions{
-		Size:    22,
-		DPI:     72,
-		Hinting: font.HintingFull,
+		Size: 26, DPI: 72, Hinting: font.HintingFull,
 	})
 	if err != nil {
-		slog.Warn("weather chrome: face init failed; skipping labels", "err", err)
+		slog.Warn("weather chrome: face init failed; skipping title", "err", err)
 		return
 	}
 	defer face.Close()
-
-	const baselineY = 1005
-	drawLabelCentered(img, "AIR", face, 186, baselineY, GruvFgDark)
-	drawLabelCentered(img, "HUMIDITY", face, 399, baselineY, GruvFgDark)
-	drawLabelCentered(img, "RAIN", face, 613, baselineY, GruvFgDark)
+	drawLabelCentered(img, "weather", face, CanvasW/2, 505, GruvFgDark)
 }
 
 // drawEasterEgg paints the rare-treat scene's centrepiece — a giant
