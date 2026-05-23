@@ -13,7 +13,6 @@ import (
 func wordnikScene(widgets map[string]widget.Widget) *scene.Scene {
 	return DictionaryScene(DictionarySceneOpts{
 		Name: "wordnik", Title: "Word of the Day", Weight: 20, BgPath: bgWordnik,
-		Widget:  widgets["wordnik"],
-		Tagline: "wordnik.com",
+		Widget: widgets["wordnik"],
 	})
 }

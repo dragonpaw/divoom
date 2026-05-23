@@ -10,6 +10,7 @@ func zenquotesScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
 		Name: "zenquotes", Title: "zen", Weight: 20, BgPath: bgZenQuotes,
 		Widget:       widgets["zenquotes"],
+		Family:       FamilyMarginalia,
 		Tagline:      "be here now",
 		TaglineColor: cBlue,
 		HasAuthor:    true,

@@ -11,8 +11,9 @@ func twainScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
 		Name: "twain", Title: "Mark Twain", Weight: 20, BgPath: bgTwain,
 		Widget:       widgets["twain"],
-		Tagline:      "Samuel L. Clemens",
-		TaglineColor: cFg,
+		Family:       FamilyMarginalia,
+		Tagline:      "S.L. CLEMENS (1835—1910)",
+		TaglineColor: cFgDark,
 		HasAuthor:    false,
 	})
 }

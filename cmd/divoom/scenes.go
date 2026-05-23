@@ -9,9 +9,13 @@ import (
 	"time"
 
 	"github.com/dragonpaw/divoom/internal/frame"
+	"github.com/dragonpaw/divoom/internal/render"
 	"github.com/dragonpaw/divoom/internal/scene"
 	"github.com/dragonpaw/divoom/internal/widget"
 )
+
+// CanvasW shadows render.CanvasW so scene-layout math reads naturally.
+const CanvasW = render.CanvasW
 
 // Element IDs. Always-on top reserves 1-3; scene primaries start at 10.
 // Each scene's layout is its own install, so re-using IDs across scenes is
@@ -797,78 +801,205 @@ func weatherRain(raw string) (text, color string) {
 // correct. All text uses fontProseLight (Roboto Condensed Light); margins
 // are 10% of the 800px canvas — StartX 80, Width 640 — on every element.
 
-// QuoteSceneOpts describes a promoted-quote scene. Tagline == "" omits the
-// fourth element; HasAuthor == false omits the author mount. Title is the
-// short label shown in the canonical sceneTitle row at the top of the body
-// area (typically the source name — "Babylon 5", "Star Trek", etc.).
+// QuoteSceneOpts describes a promoted-quote scene. The Family field
+// selects one of three baked-chrome layouts (FromSource, Marginalia,
+// Terminal); the rest of the fields are family-dependent. See
+// quote_family.go for the per-scene strings the chrome painters consume.
+//
+// Defaults: Family zero-value is FamilyMarginalia (the most neutral
+// page-of-a-book look). HasAuthor == true keeps the author Text element.
+// Tagline (when set) renders as a small caption; FamilyMarginalia puts
+// it bottom-LEFT for asymmetry against the bottom-right attribution,
+// FamilyFromSource centres it under the rule, FamilyTerminal omits it
+// (the status-bar lines play that role).
 type QuoteSceneOpts struct {
 	Name         string
 	Title        string
 	Weight       int
 	BgPath       string
 	Widget       widget.Widget
+	Family       QuoteFamily
 	Tagline      string
 	TaglineColor string
 	HasAuthor    bool
 }
 
-// QuoteScene returns the *scene.Scene for a promoted-quote layout. IDs are
-// assigned sequentially: title -> idSceneTitle, body -> idSceneSub1,
-// author -> idSceneSub2 (when HasAuthor), tagline -> idSceneSub3 (when
-// Tagline != "").
+// QuoteScene returns the *scene.Scene for a promoted-quote layout. The
+// element shape varies by Family:
+//   - FromSource: body LEFT-aligned, attribution Text element below the
+//     baked horizontal rule.
+//   - Marginalia: body LEFT-aligned (with left margin pulled in to clear
+//     the baked drop cap), attribution right-aligned at the bottom,
+//     optional tagline at bottom-LEFT.
+//   - Terminal: body LEFT-aligned beneath the baked shell prompt; no
+//     attribution / tagline Text elements — the baked status-bar lines
+//     carry that information.
 func QuoteScene(opts QuoteSceneOpts) *scene.Scene {
-	elements := []frame.DispElement{
-		sceneTitle(opts.Title),
-		quoteBody(idSceneSub1),
-	}
-	mounts := []scene.Mount{
-		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBody},
-	}
-	if opts.HasAuthor {
-		elements = append(elements, quoteAuthor(idSceneSub2))
-		mounts = append(mounts, scene.Mount{
-			ID: idSceneSub2, Format: pipeAtColor(2, cAqua), AllowEmpty: true,
-		})
-	}
-	if opts.Tagline != "" {
-		elements = append(elements, quoteTagline(idSceneSub3, opts.Tagline, opts.TaglineColor))
-	}
-	return &scene.Scene{
-		Name:     opts.Name,
-		Weight:   opts.Weight,
-		BgPath:   opts.BgPath,
-		Elements: elements,
-		Widget:   opts.Widget,
-		Mounts:   mounts,
+	switch opts.Family {
+	case FamilyFromSource:
+		return quoteSceneFromSource(opts)
+	case FamilyTerminal:
+		return quoteSceneTerminal(opts)
+	default:
+		return quoteSceneMarginalia(opts)
 	}
 }
 
-func quoteBody(id int) frame.DispElement {
+// quoteSceneFromSource builds an in-universe-document layout: body left-
+// aligned in the open region between the two baked rules, attribution
+// (when present) just below the bottom rule, optional centred tagline
+// under that.
+func quoteSceneFromSource(opts QuoteSceneOpts) *scene.Scene {
+	elements := []frame.DispElement{
+		quoteBodyLeft(idSceneSub1, 80, 640, 580, 540),
+	}
+	mounts := []scene.Mount{
+		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBodyFromSource},
+	}
+	if opts.HasAuthor {
+		elements = append(elements, frame.DispElement{
+			ID: idSceneSub2, Type: "Text",
+			StartX: 80, StartY: 1140, Width: 640, Height: 40,
+			Align: 0, FontSize: 26, FontID: fontProse,
+			FontColor: cFgDark, BgColor: cBgHard,
+		})
+		mounts = append(mounts, scene.Mount{
+			ID: idSceneSub2, Format: pipeAtUpper(2), AllowEmpty: true,
+		})
+	}
+	if opts.Tagline != "" {
+		elements = append(elements, quoteTagline(idSceneSub3, opts.Tagline, opts.TaglineColor, 2, 1190))
+	}
+	return &scene.Scene{
+		Name: opts.Name, Weight: opts.Weight, BgPath: opts.BgPath,
+		Elements: elements, Widget: opts.Widget, Mounts: mounts,
+	}
+}
+
+// quoteSceneMarginalia builds a page-of-a-book layout: body left-aligned
+// with a left margin (120px) leaving room for the baked drop cap,
+// attribution all-caps right-aligned at the bottom, optional tagline at
+// the bottom-LEFT to balance.
+func quoteSceneMarginalia(opts QuoteSceneOpts) *scene.Scene {
+	elements := []frame.DispElement{
+		quoteBodyLeft(idSceneSub1, 120, 600, 560, 540),
+	}
+	mounts := []scene.Mount{
+		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBodyMarginalia},
+	}
+	if opts.HasAuthor {
+		elements = append(elements, frame.DispElement{
+			ID: idSceneSub2, Type: "Text",
+			StartX: 80, StartY: 1130, Width: 640, Height: 40,
+			Align: 1, FontSize: 26, FontID: fontProse,
+			FontColor: cFgDark, BgColor: cBgHard,
+		})
+		mounts = append(mounts, scene.Mount{
+			ID: idSceneSub2, Format: pipeAtUpper(2), AllowEmpty: true,
+		})
+	}
+	if opts.Tagline != "" {
+		// Bottom-LEFT for asymmetry against the right-aligned attribution.
+		elements = append(elements, quoteTagline(idSceneSub3, opts.Tagline, opts.TaglineColor, 0, 1190))
+	}
+	return &scene.Scene{
+		Name: opts.Name, Weight: opts.Weight, BgPath: opts.BgPath,
+		Elements: elements, Widget: opts.Widget, Mounts: mounts,
+	}
+}
+
+// quoteSceneTerminal builds a shell-session layout: body left-aligned
+// beneath the baked prompt. No author / tagline Text elements — the
+// baked status-bar lines at the bottom of the bg carry "source:" and
+// "author:" instead.
+func quoteSceneTerminal(opts QuoteSceneOpts) *scene.Scene {
+	elements := []frame.DispElement{
+		quoteBodyLeft(idSceneSub1, 80, 640, 580, 520),
+	}
+	mounts := []scene.Mount{
+		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBodyTerminal},
+	}
+	return &scene.Scene{
+		Name: opts.Name, Weight: opts.Weight, BgPath: opts.BgPath,
+		Elements: elements, Widget: opts.Widget, Mounts: mounts,
+	}
+}
+
+// quoteBodyLeft is the standard left-aligned body element for all three
+// quote families — only the StartX / Width / StartY / Height vary.
+func quoteBodyLeft(id, startX, width, startY, height int) frame.DispElement {
 	return frame.DispElement{
 		ID: id, Type: "Text",
-		StartX: 80, StartY: 540, Width: 640, Height: 520,
-		Align: 2, FontSize: 34, FontID: fontProseLight,
+		StartX: startX, StartY: startY, Width: width, Height: height,
+		Align: 0, FontSize: 34, FontID: fontProseLight,
 		FontColor: cFg, BgColor: cBgHard,
 	}
 }
 
-func quoteAuthor(id int) frame.DispElement {
+// quoteTagline is a small static caption. align: 0=left, 1=right,
+// 2=middle. startY pins the baseline.
+func quoteTagline(id int, text, color string, align, startY int) frame.DispElement {
 	return frame.DispElement{
 		ID: id, Type: "Text",
-		StartX: 80, StartY: 1080, Width: 640, Height: 70,
-		Align: 2, FontSize: 32, FontID: fontProseLight,
-		FontColor: cAqua, BgColor: cBgHard,
-	}
-}
-
-func quoteTagline(id int, text, color string) frame.DispElement {
-	return frame.DispElement{
-		ID: id, Type: "Text",
-		StartX: 80, StartY: 1160, Width: 640, Height: 50,
-		Align: 2, FontSize: 26, FontID: fontProseLight,
+		StartX: 80, StartY: startY, Width: 640, Height: 40,
+		Align: align, FontSize: 22, FontID: fontProseLight,
 		FontColor: color, BgColor: cBgHard,
 		TextMessage: text,
 	}
+}
+
+// pipeAtUpper is pipeAt(i) wrapped in strings.ToUpper — used for the
+// attribution row of FromSource and Marginalia families, which the
+// design crit asked for in all-caps so it reads as a typographic mark
+// rather than a name in normal-case running text.
+func pipeAtUpper(i int) func(raw string) (text, color string) {
+	return func(raw string) (text, color string) {
+		t, c := pipeAt(i)(raw)
+		return strings.ToUpper(t), c
+	}
+}
+
+// vCenterQuoteBodyFromSource vertically centres the body inside its
+// from-source track (between the top baked rule at y=535 and the bottom
+// baked rule at y=1125). Mirror of vCenterQuoteBody but with track
+// bounds matching the FromSource chrome.
+func vCenterQuoteBodyFromSource(text string, e frame.DispElement) frame.DispElement {
+	return vCenterInTrack(text, e, 540, 1120, 30)
+}
+
+// vCenterQuoteBodyMarginalia: track between the top imprint rule at
+// y=525 and the attribution row at y=1130. Slightly narrower text track
+// (120..720) — char-per-line estimate folds that in.
+func vCenterQuoteBodyMarginalia(text string, e frame.DispElement) frame.DispElement {
+	return vCenterInTrack(text, e, 560, 1100, 28)
+}
+
+// vCenterQuoteBodyTerminal: track between the top baked rule at y=535
+// and the status-bar top rule at y=1140.
+func vCenterQuoteBodyTerminal(text string, e frame.DispElement) frame.DispElement {
+	return vCenterInTrack(text, e, 555, 1135, 30)
+}
+
+// vCenterInTrack centres a short body in the rectangle (trackTop..trackBot),
+// anchored to trackTop when the text would otherwise overflow. charsPerLine
+// is the empirical wrap estimate for the body's font + width (FontSize 34,
+// fontProseLight, the widths the three family builders use).
+func vCenterInTrack(text string, e frame.DispElement, trackTop, trackBot, charsPerLine int) frame.DispElement {
+	const lineHeight = 45
+	trackH := trackBot - trackTop
+	lines := (len(text) + charsPerLine - 1) / charsPerLine
+	if lines < 1 {
+		lines = 1
+	}
+	rendered := lines * lineHeight
+	if rendered >= trackH {
+		e.StartY = trackTop
+		e.Height = trackH
+		return e
+	}
+	e.StartY = trackTop + (trackH-rendered)/2
+	e.Height = rendered
+	return e
 }
 
 // --- dictionary scene helper ---
@@ -880,79 +1011,73 @@ func quoteTagline(id int, text, color string) frame.DispElement {
 // "Ambrose Bierce") and a static tagline. Shares the 10%-margin
 // (StartX 80, Width 640) convention with QuoteScene.
 
-// DictionarySceneOpts describes a dictionary-shaped scene. HasAuthor adds
-// the author element + mount (segment 2 of the widget output). Tagline
-// adds a static caption beneath everything else.
+// DictionarySceneOpts describes a dictionary-shaped scene. Dictionary
+// scenes are always FamilyTerminal — the baked shell-prompt + status-bar
+// chrome carries the source label and (when present) author, so the only
+// device Text elements are the headword (Iosevka, scene-accent colour),
+// POS (small aqua, on the same line as the headword), and definition
+// (running prose).
 //
 // Colours are intentionally NOT options: every dictionary scene uses
-// the same palette (yellow headword, aqua POS/author, dim tagline) so
-// they read as a consistent typographic family even when the source
-// material differs.
+// the same palette (yellow headword, aqua POS, fg definition) so they
+// read as a consistent typographic family even when the source material
+// differs.
 type DictionarySceneOpts struct {
-	Name      string
-	Title     string
-	Weight    int
-	BgPath    string
-	Widget    widget.Widget
-	HasAuthor bool
-	Tagline   string
+	Name   string
+	Title  string // unused under the redesign; kept for call-site continuity
+	Weight int
+	BgPath string
+	Widget widget.Widget
 }
 
 func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
+	// Compute where the baked shell-prompt prefix ends so the headword
+	// sits flush right of it on the same baseline. The fallback (80) is
+	// the canvas left margin and matches the chrome-failure render path.
+	headwordX := 80
+	chrome := quoteFamilyChromeByName(opts.Name, time.Now())
+	if chrome.ShellPrompt != "" {
+		// 12 px gap between the baked prompt and the headword. Iosevka
+		// 28pt is the baked face; MeasureLabel uses the same DPI/hinting
+		// pair as the chrome painter, so the two stay aligned.
+		if w, err := render.MeasureLabel(chrome.ShellPrompt+" ", "Iosevka-Regular.ttf", 28); err == nil {
+			headwordX = 80 + w
+		}
+	}
+
 	elements := []frame.DispElement{
-		sceneTitle(opts.Title),
-		// Headword (big condensed, scene-chosen colour). Height tightened
-		// to just clear FontSize 90 so the POS sits right under it
-		// rather than 50px of empty padding away. The Geometry callback
-		// auto-shrinks the FontSize for long headwords so they fit on
-		// one line instead of wrapping; condensed font means this rarely
-		// triggers in practice.
+		// Headword — Iosevka (mono), left-aligned, sitting just to the
+		// right of the baked "$ <cmd>" prompt. Smaller than the previous
+		// 90pt to fit on one line beside the prompt; fits the terminal-
+		// session aesthetic better than the giant heading anyway.
 		{
 			ID: idSceneSub1, Type: "Text",
-			StartX: 80, StartY: 540, Width: 640, Height: 100,
-			Align: 2, FontSize: 90, FontID: fontProseLight,
+			StartX: headwordX, StartY: 490, Width: CanvasW - 80 - headwordX, Height: 50,
+			Align: 0, FontSize: 36, FontID: fontMono,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
-		// Part of speech (medium prose, aqua).
+		// Part-of-speech tag — small aqua, dropped one row below the
+		// headword so the headword line stays uncluttered.
 		{
 			ID: idSceneSub2, Type: "Text",
-			StartX: 80, StartY: 650, Width: 640, Height: 50,
-			Align: 2, FontSize: 36, FontID: fontProseLight,
+			StartX: 80, StartY: 560, Width: 640, Height: 40,
+			Align: 0, FontSize: 26, FontID: fontProseLight,
 			FontColor: cAqua, BgColor: cBgHard,
 		},
-		// Definition (body prose, fg, vertically centred within its
-		// own track so long entries never bleed up into the headword).
+		// Definition — body prose, left-aligned, vertically centred
+		// inside the body track. fitDictionaryBody auto-shrinks the font
+		// for long entries.
 		{
 			ID: idSceneSub3, Type: "Text",
-			StartX: 80, StartY: 720, Width: 640, Height: 380,
-			Align: 2, FontSize: 34, FontID: fontProseLight,
+			StartX: 80, StartY: 620, Width: 640, Height: 510,
+			Align: 0, FontSize: 34, FontID: fontProseLight,
 			FontColor: cFg, BgColor: cBgHard,
 		},
 	}
 	mounts := []scene.Mount{
-		{ID: idSceneSub1, Format: dictionaryWord, Geometry: shrinkHeadword},
+		{ID: idSceneSub1, Format: dictionaryWord, Geometry: shrinkHeadwordTerminal},
 		{ID: idSceneSub2, Format: dictionaryPOS, AllowEmpty: true},
-		{ID: idSceneSub3, Format: dictionaryDefinition, Geometry: fitDictionaryBody},
-	}
-	if opts.HasAuthor {
-		elements = append(elements, frame.DispElement{
-			ID: idSceneSub4, Type: "Text",
-			StartX: 80, StartY: 1110, Width: 640, Height: 50,
-			Align: 2, FontSize: 32, FontID: fontProseLight,
-			FontColor: cAqua, BgColor: cBgHard,
-		})
-		mounts = append(mounts, scene.Mount{
-			ID: idSceneSub4, Format: pipeAt(2), AllowEmpty: true,
-		})
-	}
-	if opts.Tagline != "" {
-		elements = append(elements, frame.DispElement{
-			ID: idSceneSub5, Type: "Text",
-			StartX: 80, StartY: 1170, Width: 640, Height: 50,
-			Align: 2, FontSize: 26, FontID: fontProseLight,
-			FontColor: cFgDark, BgColor: cBgHard,
-			TextMessage: opts.Tagline,
-		})
+		{ID: idSceneSub3, Format: dictionaryDefinition, Geometry: fitDictionaryBodyTerminal},
 	}
 	return &scene.Scene{
 		Name:     opts.Name,
@@ -962,6 +1087,79 @@ func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
 		Widget:   opts.Widget,
 		Mounts:   mounts,
 	}
+}
+
+// shrinkHeadwordTerminal: same idea as shrinkHeadword but scaled for the
+// smaller Iosevka headword used in the terminal layout. Mono characters
+// are wider, so the per-char ratio is higher.
+func shrinkHeadwordTerminal(text string, e frame.DispElement) frame.DispElement {
+	const (
+		maxFontSize    = 36
+		minFontSize    = 20
+		charWidthRatio = 0.55 // empirical for Iosevka regular
+	)
+	if text == "" {
+		return e
+	}
+	estimated := int(float64(len(text)) * float64(maxFontSize) * charWidthRatio)
+	if estimated <= e.Width {
+		e.FontSize = maxFontSize
+		return e
+	}
+	shrunk := int(float64(e.Width) / (float64(len(text)) * charWidthRatio))
+	if shrunk < minFontSize {
+		shrunk = minFontSize
+	}
+	e.FontSize = shrunk
+	return e
+}
+
+// fitDictionaryBodyTerminal mirrors fitDictionaryBody but for the
+// terminal-family geometry (taller track between y=620 and y=1130 since
+// the chrome handles the source/author rows). Auto-shrinks the FontSize
+// when long entries would overflow, then vertically centres.
+func fitDictionaryBodyTerminal(text string, e frame.DispElement) frame.DispElement {
+	const (
+		maxFontSize    = 34
+		minFontSize    = 22
+		trackTop       = 620
+		trackBottom    = 1130
+		charWidthRatio = 0.45
+		lineHeightFrac = 1.30
+	)
+	const trackH = trackBottom - trackTop
+	if text == "" {
+		e.StartY = trackTop
+		e.Height = trackH
+		return e
+	}
+	fs := minFontSize
+	rendered := trackH
+	for size := maxFontSize; size >= minFontSize; size-- {
+		charsPerLine := int(float64(e.Width) / (float64(size) * charWidthRatio))
+		if charsPerLine < 1 {
+			charsPerLine = 1
+		}
+		lines := (len(text) + charsPerLine - 1) / charsPerLine
+		if lines < 1 {
+			lines = 1
+		}
+		h := int(float64(lines*size) * lineHeightFrac)
+		if h <= trackH {
+			fs = size
+			rendered = h
+			break
+		}
+	}
+	e.FontSize = fs
+	if rendered >= trackH {
+		e.StartY = trackTop
+		e.Height = trackH
+		return e
+	}
+	e.StartY = trackTop + (trackH-rendered)/2
+	e.Height = rendered
+	return e
 }
 
 // --- moon formatters ---

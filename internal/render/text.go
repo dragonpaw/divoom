@@ -75,3 +75,47 @@ func drawLabelCentered(img *image.RGBA, s string, face font.Face, cx, baselineY 
 	}
 	d.DrawString(s)
 }
+
+// drawLabelLeft paints s with its left edge at x and baseline at baselineY.
+func drawLabelLeft(img *image.RGBA, s string, face font.Face, x, baselineY int, c color.RGBA) {
+	d := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(c),
+		Face: face,
+		Dot:  fixed.Point26_6{X: fixed.I(x), Y: fixed.I(baselineY)},
+	}
+	d.DrawString(s)
+}
+
+// drawLabelRight paints s with its right edge at x and baseline at baselineY.
+func drawLabelRight(img *image.RGBA, s string, face font.Face, x, baselineY int, c color.RGBA) {
+	w := font.MeasureString(face, s)
+	dotX := fixed.I(x) - w
+	d := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(c),
+		Face: face,
+		Dot:  fixed.Point26_6{X: dotX, Y: fixed.I(baselineY)},
+	}
+	d.DrawString(s)
+}
+
+// MeasureLabel returns the pixel width of s rendered in the given font/size.
+// Used by callers that need to know where a baked label ends so they can
+// align device Text elements next to it (e.g. terminal-family scenes
+// placing a dynamic headword after a baked "$ define " prompt).
+func MeasureLabel(s, fontName string, size float64) (int, error) {
+	f, err := LoadFont(fontName)
+	if err != nil {
+		return 0, err
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size: size, DPI: 72, Hinting: font.HintingFull,
+	})
+	if err != nil {
+		return 0, err
+	}
+	defer face.Close()
+	w := font.MeasureString(face, s)
+	return w.Ceil(), nil
+}

@@ -12,6 +12,7 @@ func stoicsScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
 		Name: "stoics", Title: "Stoics", Weight: 20, BgPath: bgStoics,
 		Widget:       widgets["stoics"],
+		Family:       FamilyMarginalia,
 		Tagline:      "memento mori",
 		TaglineColor: cGreen,
 		HasAuthor:    true,

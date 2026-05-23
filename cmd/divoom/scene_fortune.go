@@ -5,16 +5,13 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// "Fortune" — BSD fortune(1) cookies. Most entries are anonymous
-// but those with `-- Author` lines carry attribution inline via
-// the standard splitAuthor convention; HasAuthor wires the
-// author slot so attributed cookies surface their source.
+// "Fortune" — Terminal family: `$ fortune -s` baked into the bg, with a
+// baked source/author status bar at the bottom. The widget body renders
+// as a left-aligned Text element between them.
 func fortuneScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
 		Name: "fortune", Title: "fortune", Weight: 20, BgPath: bgFortune,
-		Widget:       widgets["fortune"],
-		Tagline:      "a fortune cookie awaits",
-		TaglineColor: cAqua,
-		HasAuthor:    true,
+		Widget: widgets["fortune"],
+		Family: FamilyTerminal,
 	})
 }

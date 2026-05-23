@@ -187,25 +187,31 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneHN, render.FormatJPEG, now) }, bgHN},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneDayOfYear, render.FormatJPEG, now) }, bgDayOfYear},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now) }, bgEaster},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneBabylon5, render.FormatJPEG, now) }, bgBabylon5},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneStarTrek, render.FormatJPEG, now) }, bgStarTrek},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneDiscworld, render.FormatJPEG, now) }, bgDiscworld},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneJargon, render.FormatJPEG, now) }, bgJargon},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneCatFacts, render.FormatJPEG, now) }, bgCatFacts},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneDidYouKnow, render.FormatJPEG, now) }, bgDidYouKnow},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneSunrise, render.FormatJPEG, now) }, bgSunrise},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneZenQuotes, render.FormatJPEG, now) }, bgZenQuotes},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneDevil, render.FormatJPEG, now) }, bgDevil},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneNASA, render.FormatJPEG, now) }, bgNASA},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneCocktail, render.FormatJPEG, now) }, bgCocktail},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneOnThisDay, render.FormatJPEG, now) }, bgOnThisDay},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneISS, render.FormatJPEG, now) }, bgISS},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneGitHub, render.FormatJPEG, now) }, bgGitHub},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneTIL, render.FormatJPEG, now) }, bgTIL},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneWordnik, render.FormatJPEG, now) }, bgWordnik},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneStoics, render.FormatJPEG, now) }, bgStoics},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneTwain, render.FormatJPEG, now) }, bgTwain},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneFortune, render.FormatJPEG, now) }, bgFortune},
+	}
+	// Quote-family scenes: each carries baked chrome (in-universe header /
+	// book-page imprint / shell prompt + status bar) so the device's
+	// 6-element cap stays free for the dynamic body text. See
+	// quote_family.go for the per-scene chrome strings.
+	for _, q := range quoteSceneRegistry {
+		q := q
+		bgs = append(bgs, struct {
+			render func() ([]byte, error)
+			path   string
+		}{
+			render: func() ([]byte, error) {
+				return render.SceneFamilyBackground(q.Scene, q.ChromeFor(now), render.FormatJPEG, now)
+			},
+			path: q.BgPath,
+		})
 	}
 	// One bg per weather outlook, each carrying the matching icon in the
 	// bottom-right corner; the scene's BgPathFor picks among these at

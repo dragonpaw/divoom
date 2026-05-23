@@ -140,6 +140,263 @@ func SceneWeatherBackground(outlook string, format Format, now time.Time) ([]byt
 	return encodeImage(img, format)
 }
 
+// QuoteFamily picks one of the three baked-chrome quote layouts. See
+// FamilyChrome for the per-family field meanings and
+// SceneFamilyBackground for how it's wired in.
+type QuoteFamily int
+
+const (
+	// FamilyMarginalia is the page-of-a-book layout — book name + chapter
+	// at the top, a baked drop-cap glyph in the body-left margin,
+	// attribution baked at the bottom-right. Default for QuoteScene.
+	FamilyMarginalia QuoteFamily = iota
+	// FamilyFromSource is the in-universe-document layout — header strip
+	// (stardate / earthforce transmission / press imprint) above the body
+	// and a thin rule above the attribution slot at the bottom.
+	FamilyFromSource
+	// FamilyTerminal is the shell-session layout — baked `$ <cmd>` prompt
+	// above the body and a two-line status bar at the bottom carrying
+	// `source:` and `author:` lines.
+	FamilyTerminal
+)
+
+// FamilyChrome carries the per-scene strings that the family painters
+// bake into the bg. Fields outside a family's needs are ignored. The
+// glyph (drawn by SceneBackground) is moved per family by
+// glyphAnchorFor so the chrome and the glyph never collide.
+type FamilyChrome struct {
+	Family QuoteFamily
+
+	// FromSource: in-universe header strip. Header is the left text
+	// (e.g. "STARDATE 79341.7"); Subheader is the right text (e.g.
+	// "PERSONAL LOG"). Either may be empty.
+	Header    string
+	Subheader string
+
+	// Marginalia: top-of-page imprint. BookName goes top-left,
+	// Chapter goes top-right. DropCap is the single glyph baked at the
+	// body's left margin (90pt). DropCapColor is the gruvbox hex
+	// accent for the drop cap; empty means cFgDark.
+	BookName     string
+	Chapter      string
+	DropCap      string
+	DropCapColor string
+
+	// Terminal: baked shell prompt above the body and two status-bar
+	// lines at the bottom. ShellPrompt is the full prompt string
+	// (e.g. "$ fortune -s" or "$ define"); SourceFooter / AuthorFooter
+	// are the bottom two lines.
+	ShellPrompt  string
+	SourceFooter string
+	AuthorFooter string
+}
+
+// SceneFamilyBackground builds the hero frame, paints the scene's glyph
+// (relocated per family so the chrome stays unobstructed), and then bakes
+// the family chrome on top. Used by the quote / dictionary scenes that
+// participate in the three-family redesign; other scenes keep calling
+// SceneBackground.
+func SceneFamilyBackground(scene Scene, chrome FamilyChrome, format Format, now time.Time) ([]byte, error) {
+	img := buildHeroImage(now)
+	cx, cy := glyphAnchorFor(chrome.Family)
+	drawSceneGlyphAt(img, scene, cx, cy)
+	switch chrome.Family {
+	case FamilyFromSource:
+		drawFromSourceChrome(img, chrome.Header, chrome.Subheader)
+	case FamilyMarginalia:
+		drawMarginaliaChrome(img, chrome.BookName, chrome.Chapter, chrome.DropCap, chrome.DropCapColor)
+	case FamilyTerminal:
+		drawTerminalChrome(img, chrome.ShellPrompt, chrome.SourceFooter, chrome.AuthorFooter)
+	}
+	return encodeImage(img, format)
+}
+
+// glyphAnchorFor returns the (cx, cy) the scene glyph should be drawn at
+// for a given family. FamilyFromSource and FamilyMarginalia put the
+// glyph in the bottom-LEFT (the new bottom-right is occupied by
+// attribution / status text); FamilyTerminal puts it in the top-RIGHT
+// (its bottom is full of the two-line status bar).
+func glyphAnchorFor(family QuoteFamily) (cx, cy int) {
+	switch family {
+	case FamilyTerminal:
+		// Top-right corner, beside the baked shell prompt, in the open
+		// area before the body starts.
+		return CanvasW - 180, 700
+	case FamilyFromSource, FamilyMarginalia:
+		// Bottom-LEFT, but pulled up enough to sit ABOVE the baked
+		// bottom rule (y≈1125) so the glyph and the rule don't fight.
+		return 180, 970
+	default:
+		return CanvasW - 180, CanvasH - 240
+	}
+}
+
+// drawFromSourceChrome bakes the in-universe header strip: Header on the
+// left, Subheader on the right, both in fontProseLight 28pt cFgDark with
+// a thin rule below them and a matching rule above the attribution slot
+// at the bottom.
+func drawFromSourceChrome(img *image.RGBA, header, subheader string) {
+	const (
+		left      = 80
+		right     = CanvasW - 80
+		baselineY = 510
+		topRuleY  = 525
+		botRuleY  = 1125
+	)
+	if header != "" || subheader != "" {
+		f, err := LoadFont("RobotoCondensed-Light.ttf")
+		if err == nil {
+			face, err := opentype.NewFace(f, &opentype.FaceOptions{
+				Size: 26, DPI: 72, Hinting: font.HintingFull,
+			})
+			if err == nil {
+				defer face.Close()
+				if header != "" {
+					drawLabelLeft(img, header, face, left, baselineY, GruvFgDark)
+				}
+				if subheader != "" {
+					drawLabelRight(img, subheader, face, right, baselineY, GruvFgDark)
+				}
+			} else {
+				slog.Warn("from-source chrome: face init failed", "err", err)
+			}
+		} else {
+			slog.Warn("from-source chrome: font load failed", "err", err)
+		}
+	}
+	draw.Draw(img, image.Rect(left, topRuleY, right, topRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	draw.Draw(img, image.Rect(left, botRuleY, right, botRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+}
+
+// drawMarginaliaChrome bakes the book-page imprint: BookName top-left,
+// Chapter top-right, a thin rule beneath them, a 90pt DropCap glyph in
+// the body's left margin (in DropCapColor), plus a thin bottom-right
+// rule under where the attribution Text element will render.
+func drawMarginaliaChrome(img *image.RGBA, bookName, chapter, dropCap, dropCapColor string) {
+	const (
+		left          = 80
+		right         = CanvasW - 80
+		imprintBase   = 510
+		topRuleY      = 525
+		bottomRuleY   = 1175
+		bottomRuleX0  = 380
+		dropCapBaseY  = 660
+		dropCapX      = 90
+	)
+	if bookName != "" || chapter != "" {
+		f, err := LoadFont("RobotoCondensed-Light.ttf")
+		if err == nil {
+			face, err := opentype.NewFace(f, &opentype.FaceOptions{
+				Size: 26, DPI: 72, Hinting: font.HintingFull,
+			})
+			if err == nil {
+				defer face.Close()
+				if bookName != "" {
+					drawLabelLeft(img, bookName, face, left, imprintBase, GruvFgDark)
+				}
+				if chapter != "" {
+					drawLabelRight(img, chapter, face, right, imprintBase, GruvFgDark)
+				}
+			} else {
+				slog.Warn("marginalia chrome: face init failed", "err", err)
+			}
+		} else {
+			slog.Warn("marginalia chrome: font load failed", "err", err)
+		}
+	}
+	draw.Draw(img, image.Rect(left, topRuleY, right, topRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	// Decorative bottom-right rule under the attribution slot.
+	draw.Draw(img, image.Rect(bottomRuleX0, bottomRuleY, right, bottomRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	if dropCap != "" {
+		f, err := LoadFont("RobotoCondensed-Light.ttf")
+		if err == nil {
+			face, err := opentype.NewFace(f, &opentype.FaceOptions{
+				Size: 90, DPI: 72, Hinting: font.HintingFull,
+			})
+			if err == nil {
+				defer face.Close()
+				c := hexToRGBA(dropCapColor, GruvFgDark)
+				drawLabelLeft(img, dropCap, face, dropCapX, dropCapBaseY, c)
+			}
+		}
+	}
+}
+
+// drawTerminalChrome bakes the shell-session frame: ShellPrompt baked in
+// fontMono 28pt at the top, a thin top rule below it, and a two-line
+// status bar (source: / author:) at the bottom in fontMono 22pt with
+// thin rules bracketing it.
+func drawTerminalChrome(img *image.RGBA, prompt, sourceFooter, authorFooter string) {
+	const (
+		left          = 80
+		right         = CanvasW - 80
+		promptBase    = 515
+		topRuleY      = 535
+		statusTopRule = 1140
+		sourceBase    = 1170
+		authorBase    = 1200
+		statusBotRule = 1215
+	)
+	if prompt != "" {
+		f, err := LoadFont("Iosevka-Regular.ttf")
+		if err == nil {
+			face, err := opentype.NewFace(f, &opentype.FaceOptions{
+				Size: 28, DPI: 72, Hinting: font.HintingFull,
+			})
+			if err == nil {
+				defer face.Close()
+				drawLabelLeft(img, prompt, face, left, promptBase, GruvFgDark)
+			} else {
+				slog.Warn("terminal chrome: face init failed", "err", err)
+			}
+		} else {
+			slog.Warn("terminal chrome: font load failed", "err", err)
+		}
+	}
+	draw.Draw(img, image.Rect(left, topRuleY, right, topRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	draw.Draw(img, image.Rect(left, statusTopRule, right, statusTopRule+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	if sourceFooter != "" || authorFooter != "" {
+		f, err := LoadFont("Iosevka-Regular.ttf")
+		if err == nil {
+			face, err := opentype.NewFace(f, &opentype.FaceOptions{
+				Size: 22, DPI: 72, Hinting: font.HintingFull,
+			})
+			if err == nil {
+				defer face.Close()
+				if sourceFooter != "" {
+					drawLabelLeft(img, sourceFooter, face, left, sourceBase, GruvFgDark)
+				}
+				if authorFooter != "" {
+					drawLabelLeft(img, authorFooter, face, left, authorBase, GruvFgDark)
+				}
+			}
+		}
+	}
+	draw.Draw(img, image.Rect(left, statusBotRule, right, statusBotRule+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+}
+
+// hexToRGBA parses a "#rrggbb" string into a color.RGBA, returning fallback
+// on parse failure. Used by the chrome painters so per-scene accent
+// colours can be supplied as the same gruvbox hex strings the device
+// scenes already use.
+func hexToRGBA(hex string, fallback color.RGBA) color.RGBA {
+	if len(hex) != 7 || hex[0] != '#' {
+		return fallback
+	}
+	var r, g, b uint8
+	if _, err := fmt.Sscanf(hex[1:], "%02x%02x%02x", &r, &g, &b); err != nil {
+		return fallback
+	}
+	return color.RGBA{R: r, G: g, B: b, A: 0xff}
+}
+
 // drawWeatherChrome paints the console-strip dividers and the three
 // column labels (AIR / HUMIDITY / RAIN) into the weather bg. The labels
 // are baked in here instead of carried as device Text elements so the
@@ -299,12 +556,14 @@ func encodeImage(img *image.RGBA, format Format) ([]byte, error) {
 // subliminal hint. Color is gruvbox bg-darker (~step lighter than bg-hard)
 // so the shape is clearly present without overpowering the text.
 func drawSceneGlyph(img *image.RGBA, scene Scene) {
-	const (
-		// Anchor the glyph at the bottom-right, well above the year-
-		// progress hairline (y=1268-1272) so the bar still reads cleanly.
-		cx = CanvasW - 180
-		cy = CanvasH - 240
-	)
+	drawSceneGlyphAt(img, scene, CanvasW-180, CanvasH-240)
+}
+
+// drawSceneGlyphAt paints the scene's glyph centred on (cx, cy). The
+// public-API drawSceneGlyph wraps this with the long-standing bottom-
+// right anchor; the three-family quote redesign uses this directly via
+// glyphAnchorFor to move the glyph out from under family chrome.
+func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 	c := GruvBgDarker
 
 	switch scene {

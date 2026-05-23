@@ -56,18 +56,6 @@ func runRender(args []string) error {
 		{name: "scene-easter", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now)
 		}},
-		{name: "scene-babylon5", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneBabylon5, render.FormatJPEG, now)
-		}},
-		{name: "scene-startrek", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneStarTrek, render.FormatJPEG, now)
-		}},
-		{name: "scene-discworld", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneDiscworld, render.FormatJPEG, now)
-		}},
-		{name: "scene-jargon", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneJargon, render.FormatJPEG, now)
-		}},
 		{name: "scene-catfacts", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneCatFacts, render.FormatJPEG, now)
 		}},
@@ -76,12 +64,6 @@ func runRender(args []string) error {
 		}},
 		{name: "scene-sunrise", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneSunrise, render.FormatJPEG, now)
-		}},
-		{name: "scene-zenquotes", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneZenQuotes, render.FormatJPEG, now)
-		}},
-		{name: "scene-devil", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneDevil, render.FormatJPEG, now)
 		}},
 		{name: "scene-nasa", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneNASA, render.FormatJPEG, now)
@@ -101,18 +83,19 @@ func runRender(args []string) error {
 		{name: "scene-til", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneTIL, render.FormatJPEG, now)
 		}},
-		{name: "scene-wordnik", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneWordnik, render.FormatJPEG, now)
-		}},
-		{name: "scene-stoics", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneStoics, render.FormatJPEG, now)
-		}},
-		{name: "scene-twain", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneTwain, render.FormatJPEG, now)
-		}},
-		{name: "scene-fortune", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneFortune, render.FormatJPEG, now)
-		}},
+	}
+	// Quote-family scenes — baked chrome per family (see quote_family.go).
+	for _, q := range quoteSceneRegistry {
+		q := q
+		scenes = append(scenes, struct {
+			name   string
+			render func() ([]byte, error)
+		}{
+			name: "scene-" + q.Name,
+			render: func() ([]byte, error) {
+				return render.SceneFamilyBackground(q.Scene, q.ChromeFor(now), render.FormatJPEG, now)
+			},
+		})
 	}
 	// One preview per weather outlook so the icon set can be spot-checked
 	// without spinning up the daemon.

@@ -10,6 +10,7 @@ func discworldScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
 		Name: "discworld", Title: "Discworld", Weight: 20, BgPath: bgDiscworld,
 		Widget:       widgets["discworld"],
+		Family:       FamilyFromSource,
 		Tagline:      "GNU Terry Pratchett",
 		TaglineColor: cOrange,
 		HasAuthor:    true,
