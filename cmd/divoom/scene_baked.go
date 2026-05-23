@@ -34,10 +34,10 @@ import (
 	_ "image/png"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -623,10 +623,17 @@ func cocktailSubhead(glass, category string) string {
 
 // fetchCocktailIDList queries TheCocktailDB filter endpoint for every
 // category in cocktailCategories, merges the result lists, and
-// returns a deduped, sorted slice of drink IDs. The category list is
-// itself cached on disk (per-category JSON) so subsequent runs skip
-// the filter calls — only newly-added drinks would be missed, which
-// is fine until you manually clear the cache.
+// returns a deduped, shuffled slice of drink IDs. The category list
+// is itself cached on disk (per-category JSON) so subsequent runs
+// skip the filter calls — only newly-added drinks would be missed,
+// which is fine until you manually clear the cache.
+//
+// Shuffle order: a fresh PCG seeded from time.Now per call means each
+// `make push-frame` run pushes the same drinks to *different* indexed
+// slots. The scene picks a random index per activation anyway, but
+// shuffling here means an interrupted push doesn't leave the device
+// with "all the A drinks" — interrupt at index N and you've got a
+// random subset of the catalogue, not the alphabetical prefix.
 func fetchCocktailIDList(ctx context.Context) ([]string, error) {
 	seen := make(map[string]bool)
 	var ids []string
@@ -643,7 +650,8 @@ func fetchCocktailIDList(ctx context.Context) ([]string, error) {
 			ids = append(ids, id)
 		}
 	}
-	sort.Strings(ids)
+	rng := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0xC0CC7A11))
+	rng.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
 	return ids, nil
 }
 
