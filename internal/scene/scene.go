@@ -69,6 +69,16 @@ type Scene struct {
 	Widget    widget.Widget
 	Mounts    []Mount
 
+	// OnActivate, if set, runs at every scene activation after Mounts
+	// have populated text/colour on the bottom slice. It receives the
+	// current wall-clock and the scene's raw cached widget text, and may
+	// mutate the elements slice in place (e.g. recompute an element's
+	// StartX from `now`). Use only for state that must be fresh per
+	// activation; per-text geometry belongs in Mount.Geometry. The
+	// sunrise scene uses this to position its current-time tick along
+	// the baked day-arc.
+	OnActivate func(now time.Time, raw string, elements []frame.DispElement)
+
 	mu       sync.RWMutex
 	cached   string
 	healthy  bool // true until first failure; flips back on next success
@@ -352,7 +362,12 @@ func (d *Driver) activate(ctx context.Context, s *Scene) error {
 		}
 	}
 
-	top := d.AlwaysOn(time.Now())
+	now := time.Now()
+	if s.OnActivate != nil {
+		s.OnActivate(now, raw, bottom)
+	}
+
+	top := d.AlwaysOn(now)
 	elements := make([]frame.DispElement, 0, len(top)+len(bottom))
 	elements = append(elements, top...)
 	elements = append(elements, bottom...)

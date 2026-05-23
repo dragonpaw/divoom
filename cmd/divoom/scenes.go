@@ -46,7 +46,6 @@ const (
 // each can have its own glyph in the bottom area.
 const (
 	bgMarkets    = "/userdata/wallclock_bg_markets.jpg"
-	bgMoonphase  = "/userdata/wallclock_bg_moonphase.jpg"
 	bgHN         = "/userdata/wallclock_bg_hn.jpg"
 	bgDevil      = "/userdata/wallclock_bg_devil.jpg"
 	bgDayOfYear  = "/userdata/wallclock_bg_dayofyear.jpg"
@@ -116,6 +115,83 @@ func weatherBgFor(outlook string) string {
 	return bgWeatherCloudy
 }
 
+// moonBackgrounds is the on-device path for each of the 14 pre-rendered
+// moon-disc variants spanning one synodic cycle (0 = new, 7 = full,
+// 1-6 wax, 8-13 wane). Selected at scene-activation time by
+// moonBgPathFor; all 14 are pushed up front by pushSceneBackgrounds.
+// 14 is the design decision — covers ~2 days per variant on a 29.53-day
+// cycle, finer than the ~3.4%/day human-detectable illumination change.
+var moonBackgrounds = func() [render.MoonPhaseVariants]string {
+	var paths [render.MoonPhaseVariants]string
+	for i := 0; i < render.MoonPhaseVariants; i++ {
+		paths[i] = fmt.Sprintf("/userdata/wallclock_bg_moonphase_%02d.jpg", i)
+	}
+	return paths
+}()
+
+// moonPhaseIndex maps an illumination percentage (0-100) plus a
+// waxing/waning flag to one of the 14 variant indices. New moon (illum
+// < 4) and full moon (illum > 96) collapse to indices 0 and 7
+// regardless of the flag; everything else picks the nearest waxing
+// (1-6) or waning (8-13) index by absolute illumination distance.
+func moonPhaseIndex(illum int, waxing bool) int {
+	if illum < 4 {
+		return 0
+	}
+	if illum > 96 {
+		return 7
+	}
+	lo, hi := 1, 6
+	if !waxing {
+		lo, hi = 8, 13
+	}
+	best := lo
+	bestDiff := 101.0
+	for i := lo; i <= hi; i++ {
+		variantIllum := render.MoonIllumFractionForIndex(i) * 100
+		diff := variantIllum - float64(illum)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff < bestDiff {
+			bestDiff = diff
+			best = i
+		}
+	}
+	return best
+}
+
+// moonBgPathFor is the moonphase scene's BgPathFor callback. The widget
+// emits "moon · <phase name> · <illum>% · <countdown>"; we parse out
+// the illumination percent and whether the phase name is waxing /
+// waning / new / full, then map to one of the 14 pre-pushed disc
+// variants.
+func moonBgPathFor(raw string) string {
+	parts := strings.Split(raw, " · ")
+	if len(parts) < 3 {
+		return moonBackgrounds[7]
+	}
+	name := strings.TrimSpace(parts[1])
+	illum := 0
+	pct := strings.TrimSuffix(strings.TrimSpace(parts[2]), "%")
+	if n, err := strconv.Atoi(pct); err == nil {
+		illum = n
+	}
+	switch {
+	case strings.HasPrefix(name, "new"):
+		return moonBackgrounds[0]
+	case strings.HasPrefix(name, "full"):
+		return moonBackgrounds[7]
+	}
+	waxing := strings.HasPrefix(name, "waxing") || name == "first quarter"
+	waning := strings.HasPrefix(name, "waning") || name == "last quarter"
+	if !waxing && !waning {
+		// Defensive: an unrecognised phase name still gets a real disc.
+		return moonBackgrounds[7]
+	}
+	return moonBackgrounds[moonPhaseIndex(illum, waxing)]
+}
+
 // Gruvbox semantic colors. Reds and greens signal direction (down/up);
 // yellow / blue / aqua signal weather conditions; fg / fg-dark are quiet.
 const (
@@ -159,6 +235,16 @@ func isoWeek(now time.Time) int {
 	return w
 }
 
+// timeColor returns the AM/PM accent for the always-on clock — cAqua
+// mornings, cOrange afternoons/evenings — so the clock reads warm or
+// cool at a glance.
+func timeColor(now time.Time) string {
+	if now.Hour() < 12 {
+		return cAqua
+	}
+	return cOrange
+}
+
 // daysUntilWeekend returns the operator-footer countdown string. Mon-Fri
 // render as "weekend+Nd" (Mon=4, Tue=3, ..., Fri=0); Sat/Sun render as
 // "weekend".
@@ -191,7 +277,7 @@ func alwaysOn(now time.Time) []frame.DispElement {
 			Align:     2,
 			FontSize:  160,
 			FontID:    fontMono,
-			FontColor: cFg,
+			FontColor: timeColor(now),
 			BgColor:   cBgHard,
 		},
 		{
@@ -1164,20 +1250,34 @@ func fitDictionaryBodyTerminal(text string, e frame.DispElement) frame.DispEleme
 
 // --- moon formatters ---
 
-func moonPhaseName(s string) (text, color string) {
+// moonPhaseAndIllum renders the combined "<Phase Name> · <illum>%" row
+// shown under the disc (e.g. "First Quarter · 53%"). The widget emits
+// the phase name in lowercase; title-case it so the row reads as a
+// caption rather than continuation prose.
+func moonPhaseAndIllum(s string) (text, color string) {
 	parts := strings.Split(s, " · ")
-	if len(parts) >= 2 {
-		return parts[1], ""
+	if len(parts) < 3 {
+		return s, ""
 	}
-	return s, ""
+	return titleCasePhase(parts[1]) + " · " + parts[2], ""
 }
 
-func moonIllum(s string) (text, color string) {
-	parts := strings.Split(s, " · ")
-	if len(parts) >= 3 {
-		return parts[2] + " lit", ""
+// titleCasePhase upper-cases the first letter of each word in a moon
+// phase name. Avoids cases.Title since the package can normalise in
+// surprising ways; a one-liner is enough for the small input set
+// ("new", "waxing crescent", "first quarter", etc.).
+func titleCasePhase(s string) string {
+	if s == "" {
+		return s
 	}
-	return "", ""
+	words := strings.Fields(s)
+	for i, w := range words {
+		if w == "" {
+			continue
+		}
+		words[i] = strings.ToUpper(w[:1]) + w[1:]
+	}
+	return strings.Join(words, " ")
 }
 
 // moonNextFullMoon picks the fourth segment — the precomputed

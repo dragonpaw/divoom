@@ -110,3 +110,36 @@ func TestWeatherHumidityAndRain(t *testing.T) {
 		t.Errorf("weatherRain blank = (%q,%q), want (—,%q)", text, color, cFgDark)
 	}
 }
+
+// TestSunriseTickX pins the dynamic-tick math: before-sunrise clamps to
+// the left edge, after-sunset clamps to the right edge, and intermediate
+// times interpolate proportionally along the arc. The arc runs x=80→720
+// (640 px) and the 40px-wide tick element is centred by subtracting 20
+// from the arc point, so:
+//   - at sunrise:  StartX = 80  - 20 = 60
+//   - at midday:   StartX = 400 - 20 = 380
+//   - at sunset:   StartX = 720 - 20 = 700
+func TestSunriseTickX(t *testing.T) {
+	loc := time.UTC
+	rise := time.Date(2026, 5, 22, 6, 0, 0, 0, loc)
+	set := time.Date(2026, 5, 22, 18, 0, 0, 0, loc) // 12h span
+	cases := []struct {
+		name string
+		now  time.Time
+		want int
+	}{
+		{"before sunrise", time.Date(2026, 5, 22, 4, 0, 0, 0, loc), 60},
+		{"at sunrise", rise, 60},
+		{"midday", time.Date(2026, 5, 22, 12, 0, 0, 0, loc), 380},
+		{"at sunset", set, 700},
+		{"after sunset", time.Date(2026, 5, 22, 22, 0, 0, 0, loc), 700},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sunriseTickX(tc.now, rise, set)
+			if got != tc.want {
+				t.Errorf("sunriseTickX(%s) = %d, want %d", tc.now.Format("15:04"), got, tc.want)
+			}
+		})
+	}
+}

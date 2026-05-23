@@ -11,6 +11,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -123,10 +124,80 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// No outlook supplied — fall back to the cloudy glyph so the
 		// frame still renders. Production callers use SceneWeatherBackground.
 		drawWeatherGlyph(img, "cloudy")
+	case SceneMoonphase:
+		// No phase index supplied — fall back to the full moon (index 7)
+		// so the frame still renders. Production callers use
+		// SceneMoonphaseBackground to pick the right variant.
+		drawMoonDisc(img, 7)
 	default:
 		drawSceneGlyph(img, scene)
 	}
 	return encodeImage(img, format)
+}
+
+// MoonPhaseVariants is the number of pre-rendered moonphase variants
+// covering one full synodic cycle. Index 0 is new moon, 7 is full moon;
+// 1-6 wax (lit on the right), 8-13 wane (lit on the left).
+const MoonPhaseVariants = 14
+
+// SceneMoonphaseBackground builds the moonphase scene bg with the disc
+// painted for phaseIndex (0-13 across one synodic cycle). Index outside
+// [0, MoonPhaseVariants) is clamped — the scene's BgPathFor only emits
+// valid indices, but defensiveness here keeps a stray call from
+// panicking the render path.
+func SceneMoonphaseBackground(phaseIndex int, format Format, now time.Time) ([]byte, error) {
+	if phaseIndex < 0 {
+		phaseIndex = 0
+	}
+	if phaseIndex >= MoonPhaseVariants {
+		phaseIndex = MoonPhaseVariants - 1
+	}
+	img := buildHeroImage(now)
+	drawMoonDisc(img, phaseIndex)
+	return encodeImage(img, format)
+}
+
+// MoonIllumFractionForIndex returns the lit fraction (0..1) for variant
+// i in [0, MoonPhaseVariants). 0 = new (dark), 7 = full (bright);
+// 1-6 wax and 8-13 wane through the same midpoints. The shape matches
+// the widget's illumination() formula sampled at i/14.
+func MoonIllumFractionForIndex(i int) float64 {
+	f := float64(i) / float64(MoonPhaseVariants)
+	return (1 - math.Cos(2*math.Pi*f)) / 2
+}
+
+// drawMoonDisc paints a moon disc at (400, 730) with radius 200 for the
+// given phaseIndex. Geometry: fill the whole disc lit, then carve an
+// offset shadow circle along x. Waxing (1-6) carves the LEFT side, so
+// the lit area remains on the right; waning (8-13) carves the RIGHT.
+// Full (7) paints the whole disc lit; new (0) paints it dark.
+func drawMoonDisc(img *image.RGBA, phaseIndex int) {
+	const (
+		cx     = 400
+		cy     = 730
+		radius = 200
+	)
+	lit := GruvFg
+	dark := GruvBgDarker
+	switch {
+	case phaseIndex == 0:
+		// New moon — disc is fully dark; render it so the moon "is
+		// there" against the bg-hard backdrop.
+		fillCircle(img, cx, cy, radius, dark)
+	case phaseIndex == 7:
+		fillCircle(img, cx, cy, radius, lit)
+	default:
+		fillCircle(img, cx, cy, radius, lit)
+		illum := MoonIllumFractionForIndex(phaseIndex)
+		// offset 0 → shadow centred → all dark; 2*radius → shadow off
+		// the disc → all lit.
+		offset := int(illum * 2 * float64(radius))
+		dx := -offset // waxing: shadow on the left, lit on the right
+		if phaseIndex > 7 {
+			dx = offset // waning: shadow on the right, lit on the left
+		}
+		fillCircle(img, cx+dx, cy, radius, dark)
+	}
 }
 
 // SceneWeatherBackground renders the weather scene's bg with the icon
@@ -138,6 +209,113 @@ func SceneWeatherBackground(outlook string, format Format, now time.Time) ([]byt
 	drawWeatherGlyph(img, outlook)
 	drawWeatherChrome(img)
 	return encodeImage(img, format)
+}
+
+// SunriseBackground bakes the sunrise scene's full chrome: a horizontal
+// day-arc (yellow→orange gradient) across the body area, three fixed
+// reference ticks at the sunrise/noon/sunset positions, baked labels
+// under each, an optional daylight-duration headline above the arc
+// (left empty when the caller has no widget data yet), and a
+// bottom-LEFT sun glyph so the right side stays quiet for the labels.
+// The dynamic current-time tick is a device Text element wired up by
+// the scene's OnActivate; it is NOT baked here.
+func SunriseBackground(daylight string, format Format, now time.Time) ([]byte, error) {
+	img := buildHeroImage(now)
+	drawSunriseChrome(img, daylight)
+	// Sun glyph in the bottom-LEFT corner — the bottom-right area is
+	// now claimed by the baked arc + labels.
+	drawSceneGlyphAt(img, SceneSunrise, 180, 1100)
+	return encodeImage(img, format)
+}
+
+// drawSunriseChrome paints the day-arc gradient, the three reference
+// ticks, the sunrise/noon/sunset labels, and (when non-empty) a large
+// daylight-duration headline above the arc. Pulled into its own helper
+// so SunriseBackground stays a thin façade and the painter can be
+// unit-tested directly if needed.
+func drawSunriseChrome(img *image.RGBA, daylight string) {
+	const (
+		arcY      = 840
+		arcLeft   = 80
+		arcRight  = 720
+		arcThick  = 4
+		tickH     = 16 // total vertical extent of a reference tick
+		tickThick = 4
+		labelY    = 960
+	)
+	// Arc — 1px-wide vertical slices, each colour-interpolated between
+	// the yellow left endpoint and the orange right endpoint. Crude but
+	// reads as a smooth gradient at viewing distance.
+	span := arcRight - arcLeft
+	for x := arcLeft; x < arcRight; x++ {
+		t := float64(x-arcLeft) / float64(span)
+		c := lerpRGBA(GruvYellow, GruvOrange, t)
+		draw.Draw(img,
+			image.Rect(x, arcY-arcThick/2, x+1, arcY+arcThick/2),
+			&image.Uniform{c}, image.Point{}, draw.Src)
+	}
+	// Three fixed reference ticks — sunrise (left end), noon (mid), sunset (right end).
+	tickTop := arcY - tickH/2
+	tickBot := arcY + tickH/2
+	for _, tx := range []int{arcLeft, (arcLeft + arcRight) / 2, arcRight} {
+		draw.Draw(img,
+			image.Rect(tx-tickThick/2, tickTop, tx-tickThick/2+tickThick, tickBot),
+			&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	}
+
+	// Labels under the arc — Roboto Condensed Light, 22pt, dim.
+	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 22, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			defer face.Close()
+			// "sunrise" left-aligned in its slot, "noon" centred,
+			// "sunset" right-aligned. Slot bounds per spec.
+			drawLabelLeft(img, "sunrise", face, 40, labelY, GruvFgDark)
+			drawLabelCentered(img, "noon", face, (320+480)/2, labelY, GruvFgDark)
+			drawLabelRight(img, "sunset", face, 760, labelY, GruvFgDark)
+		} else {
+			slog.Warn("sunrise chrome: label face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("sunrise chrome: label font load failed", "err", err)
+	}
+
+	// Daylight headline above the arc — large mono, centred. Skipped
+	// when daylight is empty (e.g. preview renders that have no widget
+	// data); the device's headline slot stays at the same y to avoid
+	// surprises if the daemon later renders the full version.
+	if daylight != "" {
+		if f, err := LoadFont("Iosevka-Regular.ttf"); err == nil {
+			face, err := opentype.NewFace(f, &opentype.FaceOptions{
+				Size: 96, DPI: 72, Hinting: font.HintingFull,
+			})
+			if err == nil {
+				defer face.Close()
+				drawLabelCentered(img, daylight, face, CanvasW/2, 660, GruvFg)
+			} else {
+				slog.Warn("sunrise chrome: headline face init failed", "err", err)
+			}
+		} else {
+			slog.Warn("sunrise chrome: headline font load failed", "err", err)
+		}
+	}
+}
+
+// lerpRGBA linearly interpolates between a and b at t in [0,1].
+func lerpRGBA(a, b color.RGBA, t float64) color.RGBA {
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	return color.RGBA{
+		R: uint8(float64(a.R) + (float64(b.R)-float64(a.R))*t),
+		G: uint8(float64(a.G) + (float64(b.G)-float64(a.G))*t),
+		B: uint8(float64(a.B) + (float64(b.B)-float64(a.B))*t),
+		A: 0xff,
+	}
 }
 
 // QuoteFamily picks one of the three baked-chrome quote layouts. See
@@ -580,11 +758,6 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 				image.Rect(x, baseY-h, x+barW, baseY),
 				&image.Uniform{c}, image.Point{}, draw.Src)
 		}
-
-	case SceneMoonphase:
-		// Crescent: filled circle minus an offset circle in bg color.
-		fillCircle(img, cx, cy, 160, c)
-		fillCircle(img, cx+60, cy-30, 150, GruvBgHard)
 
 	case SceneHN:
 		// Bold blocky "Y" — Y Combinator-inspired, reading as the
