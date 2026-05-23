@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dragonpaw/divoom/internal/frame"
 	"github.com/dragonpaw/divoom/internal/render"
@@ -1013,6 +1014,11 @@ type QuoteSceneOpts struct {
 	Tagline      string
 	TaglineColor string
 	HasAuthor    bool
+
+	// DropCapColor is the colour of the dynamic drop-cap letter
+	// rendered at the body's left margin for FamilyMarginalia. Ignored
+	// for other families. Empty defaults to cFgDark.
+	DropCapColor string
 }
 
 // QuoteScene returns the *scene.Scene for a promoted-quote layout. The
@@ -1068,15 +1074,28 @@ func quoteSceneFromSource(opts QuoteSceneOpts) *scene.Scene {
 }
 
 // quoteSceneMarginalia builds a page-of-a-book layout: body left-aligned
-// with a left margin (120px) leaving room for the baked drop cap,
+// with a left margin (120px) leaving room for the dynamic drop cap,
 // attribution all-caps right-aligned at the bottom, optional tagline at
-// the bottom-LEFT to balance.
+// the bottom-LEFT to balance. The drop cap itself is a 90pt Text
+// DispElement set to the body's first letter (see marginaliaDropCap)
+// so it tracks the rotating quote instead of being a fixed monogram.
 func quoteSceneMarginalia(opts QuoteSceneOpts) *scene.Scene {
+	dropCapColor := opts.DropCapColor
+	if dropCapColor == "" {
+		dropCapColor = cFgDark
+	}
 	elements := []frame.DispElement{
 		quoteBodyLeft(idSceneSub1, 120, 600, 560, 540),
+		{
+			ID: idSceneSub4, Type: "Text",
+			StartX: 30, StartY: 580, Width: 90, Height: 110,
+			Align: 2, FontSize: 90, FontID: fontProseLight,
+			FontColor: dropCapColor, BgColor: cBgHard,
+		},
 	}
 	mounts := []scene.Mount{
 		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBodyMarginalia},
+		{ID: idSceneSub4, Format: marginaliaDropCap, AllowEmpty: true},
 	}
 	if opts.HasAuthor {
 		elements = append(elements, frame.DispElement{
@@ -1137,6 +1156,20 @@ func quoteTagline(id int, text, color string, align, startY int) frame.DispEleme
 		FontColor: color, BgColor: cBgHard,
 		TextMessage: text,
 	}
+}
+
+// marginaliaDropCap returns the body's first non-whitespace rune,
+// upper-cased — the dynamic drop-cap letter for the Marginalia family
+// scenes. Returns "" for an empty body so the AllowEmpty mount hides
+// the drop-cap element rather than rendering a blank glyph box.
+func marginaliaDropCap(raw string) (text, color string) {
+	body, _ := pipeAt(1)(raw)
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", ""
+	}
+	r, _ := utf8.DecodeRuneInString(body)
+	return strings.ToUpper(string(r)), ""
 }
 
 // pipeAtUpper is pipeAt(i) wrapped in strings.ToUpper — used for the

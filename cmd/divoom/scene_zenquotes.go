@@ -14,5 +14,6 @@ func zenquotesScene(widgets map[string]widget.Widget) *scene.Scene {
 		Tagline:      "be here now",
 		TaglineColor: cBlue,
 		HasAuthor:    true,
+		DropCapColor: cBlue,
 	})
 }

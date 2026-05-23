@@ -16,5 +16,6 @@ func stoicsScene(widgets map[string]widget.Widget) *scene.Scene {
 		Tagline:      "memento mori",
 		TaglineColor: cGreen,
 		HasAuthor:    true,
+		DropCapColor: cGreen,
 	})
 }

@@ -15,5 +15,6 @@ func twainScene(widgets map[string]widget.Widget) *scene.Scene {
 		Tagline:      "S.L. CLEMENS (1835—1910)",
 		TaglineColor: cFgDark,
 		HasAuthor:    false,
+		DropCapColor: cOrange,
 	})
 }

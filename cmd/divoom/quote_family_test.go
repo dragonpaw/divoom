@@ -58,10 +58,10 @@ func TestQuoteSceneFamilyDispatch(t *testing.T) {
 		{"fromsource +author", FamilyFromSource, true, false, 2},
 		{"fromsource +author +tag", FamilyFromSource, true, true, 3},
 
-		// Marginalia: same element math (body + optional author + tagline).
-		{"marginalia bare", FamilyMarginalia, false, false, 1},
-		{"marginalia +author", FamilyMarginalia, true, false, 2},
-		{"marginalia +author +tag", FamilyMarginalia, true, true, 3},
+		// Marginalia: body + dynamic drop-cap (+ optional author + tagline).
+		{"marginalia bare", FamilyMarginalia, false, false, 2},
+		{"marginalia +author", FamilyMarginalia, true, false, 3},
+		{"marginalia +author +tag", FamilyMarginalia, true, true, 4},
 
 		// Terminal: body only — chrome (status bar) supplies source/author.
 		{"terminal", FamilyTerminal, true, true, 1},
@@ -94,6 +94,33 @@ func TestDictionarySceneTerminal(t *testing.T) {
 	})
 	if got, want := len(s.Elements), 3; got != want {
 		t.Errorf("element count = %d, want %d", got, want)
+	}
+}
+
+// TestMarginaliaDropCap covers the dynamic drop-cap formatter: it must
+// return the first non-whitespace rune of the quote body, upper-cased,
+// and "" for an empty body so the AllowEmpty mount hides the element.
+// Source: "Source|body|author" pipe-shaped widget output.
+func TestMarginaliaDropCap(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"happy path", "stoics|the universe is change|Marcus", "T"},
+		{"lowercase body", "stoics|wisdom begins in wonder|Socrates", "W"},
+		{"unicode first char", "stoics|Épictète was a slave|Epictetus", "É"},
+		{"empty body", "stoics||Unknown", ""},
+		{"leading whitespace", "stoics|   apple|none", "A"},
+		{"missing body segment", "stoics", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := marginaliaDropCap(tc.raw)
+			if got != tc.want {
+				t.Errorf("marginaliaDropCap(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
 	}
 }
 

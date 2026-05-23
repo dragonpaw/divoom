@@ -391,13 +391,12 @@ type FamilyChrome struct {
 	Subheader string
 
 	// Marginalia: top-of-page imprint. BookName goes top-left,
-	// Chapter goes top-right. DropCap is the single glyph baked at the
-	// body's left margin (90pt). DropCapColor is the gruvbox hex
-	// accent for the drop cap; empty means cFgDark.
-	BookName     string
-	Chapter      string
-	DropCap      string
-	DropCapColor string
+	// Chapter goes top-right. The drop cap itself is NOT baked — it's
+	// a dynamic Text DispElement set at scene-activation time to the
+	// body's actual first letter (see marginaliaDropCap in scenes.go),
+	// so the bg only reserves the column where it will land.
+	BookName string
+	Chapter  string
 
 	// Terminal: baked shell prompt above the body and two status-bar
 	// lines at the bottom. ShellPrompt is the full prompt string
@@ -427,7 +426,7 @@ func SceneFamilyBackground(scene Scene, chrome FamilyChrome, format Format, now 
 	case FamilyFromSource:
 		drawFromSourceChrome(img, chrome.Header, chrome.Subheader)
 	case FamilyMarginalia:
-		drawMarginaliaChrome(img, chrome.BookName, chrome.Chapter, chrome.DropCap, chrome.DropCapColor)
+		drawMarginaliaChrome(img, chrome.BookName, chrome.Chapter)
 	case FamilyTerminal:
 		drawTerminalChrome(img, chrome.ShellPrompt, chrome.SourceFooter, chrome.AuthorFooter)
 		if chrome.PunchlineOrnaments {
@@ -874,19 +873,19 @@ func drawFromSourceChrome(img *image.RGBA, header, subheader string) {
 }
 
 // drawMarginaliaChrome bakes the book-page imprint: BookName top-left,
-// Chapter top-right, a thin rule beneath them, a 90pt DropCap glyph in
-// the body's left margin (in DropCapColor), plus a thin bottom-right
-// rule under where the attribution Text element will render.
-func drawMarginaliaChrome(img *image.RGBA, bookName, chapter, dropCap, dropCapColor string) {
+// Chapter top-right, a thin rule beneath them, plus a thin bottom-right
+// rule under where the attribution Text element will render. The drop
+// cap itself is painted at push time as a dynamic Text DispElement
+// (the body's actual first letter), not baked here — see
+// marginaliaDropCap in cmd/divoom/scenes.go.
+func drawMarginaliaChrome(img *image.RGBA, bookName, chapter string) {
 	const (
-		left          = 80
-		right         = CanvasW - 80
-		imprintBase   = 510
-		topRuleY      = 525
-		bottomRuleY   = 1175
-		bottomRuleX0  = 380
-		dropCapBaseY  = 660
-		dropCapX      = 90
+		left         = 80
+		right        = CanvasW - 80
+		imprintBase  = 510
+		topRuleY     = 525
+		bottomRuleY  = 1175
+		bottomRuleX0 = 380
 	)
 	if bookName != "" || chapter != "" {
 		f, err := LoadFont("RobotoCondensed-Light.ttf")
@@ -914,19 +913,6 @@ func drawMarginaliaChrome(img *image.RGBA, bookName, chapter, dropCap, dropCapCo
 	// Decorative bottom-right rule under the attribution slot.
 	draw.Draw(img, image.Rect(bottomRuleX0, bottomRuleY, right, bottomRuleY+1),
 		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
-	if dropCap != "" {
-		f, err := LoadFont("RobotoCondensed-Light.ttf")
-		if err == nil {
-			face, err := opentype.NewFace(f, &opentype.FaceOptions{
-				Size: 90, DPI: 72, Hinting: font.HintingFull,
-			})
-			if err == nil {
-				defer face.Close()
-				c := hexToRGBA(dropCapColor, GruvFgDark)
-				drawLabelLeft(img, dropCap, face, dropCapX, dropCapBaseY, c)
-			}
-		}
-	}
 }
 
 // drawTerminalChrome bakes the shell-session frame: ShellPrompt baked in
@@ -1006,21 +992,6 @@ func drawPunchlineOrnaments(img *image.RGBA) {
 	defer face.Close()
 	drawLabelLeft(img, "“", face, 80, 750, GruvFgDark)
 	drawLabelLeft(img, "”", face, 600, 1080, GruvFgDark)
-}
-
-// hexToRGBA parses a "#rrggbb" string into a color.RGBA, returning fallback
-// on parse failure. Used by the chrome painters so per-scene accent
-// colours can be supplied as the same gruvbox hex strings the device
-// scenes already use.
-func hexToRGBA(hex string, fallback color.RGBA) color.RGBA {
-	if len(hex) != 7 || hex[0] != '#' {
-		return fallback
-	}
-	var r, g, b uint8
-	if _, err := fmt.Sscanf(hex[1:], "%02x%02x%02x", &r, &g, &b); err != nil {
-		return fallback
-	}
-	return color.RGBA{R: r, G: g, B: b, A: 0xff}
 }
 
 // drawWeatherChrome paints the console-strip dividers and the three

@@ -79,10 +79,8 @@ var quoteSceneRegistry = []struct {
 		Name: "stoics", Scene: render.SceneStoics, BgPath: bgStoics,
 		ChromeFor: func(now time.Time) render.FamilyChrome {
 			return render.FamilyChrome{
-				Family:       FamilyMarginalia,
-				BookName:     "Meditations",
-				DropCap:      "M",
-				DropCapColor: cGreen,
+				Family:   FamilyMarginalia,
+				BookName: "Meditations",
 			}
 		},
 	},
@@ -90,10 +88,8 @@ var quoteSceneRegistry = []struct {
 		Name: "twain", Scene: render.SceneTwain, BgPath: bgTwain,
 		ChromeFor: func(now time.Time) render.FamilyChrome {
 			return render.FamilyChrome{
-				Family:       FamilyMarginalia,
-				BookName:     "S. L. Clemens — collected",
-				DropCap:      "T",
-				DropCapColor: cFgDark,
+				Family:   FamilyMarginalia,
+				BookName: "S. L. Clemens — collected",
 			}
 		},
 	},
@@ -101,9 +97,7 @@ var quoteSceneRegistry = []struct {
 		Name: "zenquotes", Scene: render.SceneZenQuotes, BgPath: bgZenQuotes,
 		ChromeFor: func(now time.Time) render.FamilyChrome {
 			return render.FamilyChrome{
-				Family:       FamilyMarginalia,
-				DropCap:      "Z",
-				DropCapColor: cBlue,
+				Family: FamilyMarginalia,
 			}
 		},
 	},
