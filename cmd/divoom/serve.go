@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/dragonpaw/divoom/internal/adb"
@@ -179,23 +178,6 @@ func logStartup(d *scene.Driver) {
 // via BackgroundImageLocalFlag: 1 in scene layouts.
 func pushSceneBackgrounds(ctx context.Context) error {
 	now := time.Now()
-	// Best-effort sunrise fetch so the bg can bake the daylight-duration
-	// headline. Failure → empty string and the bake skips the headline
-	// (arc + ticks + labels still render). Daylight drifts by ~seconds
-	// per day, so a once-per-push cadence is plenty fresh; the dynamic
-	// current-time tick is a device Text element handled at activation
-	// time, not baked here.
-	sunriseDaylight := ""
-	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	if raw, err := sky.NewSunrise().Fetch(fetchCtx); err == nil {
-		if parts := strings.Split(raw, "|"); len(parts) >= 3 {
-			sunriseDaylight = parts[2]
-		}
-	} else {
-		slog.Warn("sunrise daylight prefetch failed; baking bg without headline", "err", err)
-	}
-	cancel()
-
 	bgs := []struct {
 		render func() ([]byte, error)
 		path   string
@@ -208,7 +190,7 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now) }, bgEaster},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneCatFacts, render.FormatJPEG, now) }, bgCatFacts},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneDidYouKnow, render.FormatJPEG, now) }, bgDidYouKnow},
-		{func() ([]byte, error) { return render.SunriseBackground(sunriseDaylight, render.FormatJPEG, now) }, bgSunrise},
+		{func() ([]byte, error) { return render.SunriseBackground(render.FormatJPEG, now) }, bgSunrise},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneOnThisDay, render.FormatJPEG, now) }, bgOnThisDay},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneISS, render.FormatJPEG, now) }, bgISS},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneGitHub, render.FormatJPEG, now) }, bgGitHub},

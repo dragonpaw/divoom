@@ -65,10 +65,7 @@ func runRender(args []string) error {
 			return render.SceneBackground(render.SceneDidYouKnow, render.FormatJPEG, now)
 		}},
 		{name: "scene-sunrise", render: func() ([]byte, error) {
-			// Preview path has no widget data; pass an empty daylight so
-			// the headline is skipped but the arc + reference ticks +
-			// labels + bottom-left glyph still bake into the JPG.
-			return render.SunriseBackground("", render.FormatJPEG, now)
+			return render.SunriseBackground(render.FormatJPEG, now)
 		}},
 		{name: "scene-nasa", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneNASA, render.FormatJPEG, now)

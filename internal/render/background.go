@@ -140,6 +140,7 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// as the scene's ambient mark.
 		drawSceneGlyph(img, scene)
 		drawMarketsChrome(img)
+		drawBakedSceneTitle(img, "markets")
 	case SceneHN:
 		// HN scene chrome: "HACKER NEWS" wordmark + orange rule under
 		// it + dim footer rule above the metadata row. The Y glyph in
@@ -278,30 +279,36 @@ func SceneWeatherBackground(outlook string, format Format, now time.Time) ([]byt
 	return encodeImage(img, format)
 }
 
-// SunriseBackground bakes the sunrise scene's full chrome: a horizontal
-// day-arc (yellow→orange gradient) across the body area, three fixed
-// reference ticks at the sunrise/noon/sunset positions, baked labels
-// under each, an optional daylight-duration headline above the arc
-// (left empty when the caller has no widget data yet), and a
-// bottom-LEFT sun glyph so the right side stays quiet for the labels.
-// The dynamic current-time tick is a device Text element wired up by
-// the scene's OnActivate; it is NOT baked here.
-func SunriseBackground(daylight string, format Format, now time.Time) ([]byte, error) {
+// SunriseBackground bakes the sunrise scene's static chrome: a
+// horizontal day-arc (yellow→orange gradient) across the body area,
+// three fixed reference ticks at the sunrise/noon/sunset positions,
+// baked labels under each, and a bottom-LEFT sun glyph so the right
+// side stays quiet for the labels. The daylight-duration headline
+// (e.g. "13h 16m") and the current-time tick are dynamic device Text
+// elements wired up by the scene; they are NOT baked here.
+//
+// pushSceneBackgrounds runs once at startup, so anything baked here
+// would go stale on the first midnight rollover; the daylight value
+// drifts by ~minutes across a season and used to be baked, which left
+// the headline lying after the bg cache rolled over a few weeks.
+func SunriseBackground(format Format, now time.Time) ([]byte, error) {
 	img := buildHeroImage(now)
-	drawSunriseChrome(img, daylight)
+	drawSunriseChrome(img)
 	// Sun glyph in the bottom-LEFT corner — the bottom-right area is
 	// now claimed by the baked arc + labels.
-	drawSceneGlyphAt(img, SceneSunrise, 180, 1100)
+	// Anchor pulled lower than the dim-era 1100 because the redesign
+	// upsized the sun + rays (sunR 60→105, rays 9→14) and the higher
+	// rays would crash into the "sunrise" label baseline at y=960.
+	drawSceneGlyphAt(img, SceneSunrise, 180, 1150)
 	drawBakedSceneTitle(img, "sun")
 	return encodeImage(img, format)
 }
 
 // drawSunriseChrome paints the day-arc gradient, the three reference
-// ticks, the sunrise/noon/sunset labels, and (when non-empty) a large
-// daylight-duration headline above the arc. Pulled into its own helper
+// ticks, and the sunrise/noon/sunset labels. Pulled into its own helper
 // so SunriseBackground stays a thin façade and the painter can be
 // unit-tested directly if needed.
-func drawSunriseChrome(img *image.RGBA, daylight string) {
+func drawSunriseChrome(img *image.RGBA) {
 	const (
 		arcY      = 840
 		arcLeft   = 80
@@ -348,26 +355,6 @@ func drawSunriseChrome(img *image.RGBA, daylight string) {
 		}
 	} else {
 		slog.Warn("sunrise chrome: label font load failed", "err", err)
-	}
-
-	// Daylight headline above the arc — large mono, centred. Skipped
-	// when daylight is empty (e.g. preview renders that have no widget
-	// data); the device's headline slot stays at the same y to avoid
-	// surprises if the daemon later renders the full version.
-	if daylight != "" {
-		if f, err := LoadFont("Iosevka-Regular.ttf"); err == nil {
-			face, err := opentype.NewFace(f, &opentype.FaceOptions{
-				Size: 96, DPI: 72, Hinting: font.HintingFull,
-			})
-			if err == nil {
-				defer face.Close()
-				drawLabelCentered(img, daylight, face, CanvasW/2, 660, GruvFg)
-			} else {
-				slog.Warn("sunrise chrome: headline face init failed", "err", err)
-			}
-		} else {
-			slog.Warn("sunrise chrome: headline font load failed", "err", err)
-		}
 	}
 }
 
@@ -1649,33 +1636,38 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 	case SceneSunrise:
 		// Sun cresting a horizon: a long thin horizon bar, a sun disc
 		// whose bottom half is carved out by a bg-hard rectangle so it
-		// reads as half-risen, and three small ray discs flicking up
-		// from the top arc.
+		// reads as half-risen, and a halo of ray discs flicking up
+		// from the top arc. The sun is the scene's primary identity so
+		// it overrides the default dim-decor colour with a warm yellow.
 		const (
-			horizonHalfW = 100 // half-length of the horizon bar
-			horizonH     = 6   // horizon bar thickness
-			sunR         = 60  // sun radius
-			sunCyOff     = -8  // sun centre relative to cy (sits just above horizon)
-			rayR         = 9   // ray disc radius
+			horizonHalfW = 160 // half-length of the horizon bar (was 100)
+			horizonH     = 8   // horizon bar thickness (was 6)
+			sunR         = 105 // sun radius (was 60; ~1.75× to earn its space)
+			sunCyOff     = -14 // sun centre relative to cy (sits just above horizon)
+			rayR         = 14  // ray disc radius (was 9)
 		)
-		// Horizon bar — centred on cy.
+		sunC := GruvYellow
+		// Horizon bar — centred on cy, in the dim default so it reads
+		// as ground rather than as part of the sun itself.
 		draw.Draw(img,
 			image.Rect(cx-horizonHalfW, cy-horizonH/2, cx+horizonHalfW, cy+horizonH/2),
 			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Sun disc, then carve away everything at or below the horizon
-		// line so only the upper half stays visible.
+		// Sun disc in cYellow, then carve away everything at or below
+		// the horizon line so only the upper half stays visible.
 		sunCy := cy + sunCyOff
-		fillCircle(img, cx, sunCy, sunR, c)
+		fillCircle(img, cx, sunCy, sunR, sunC)
 		draw.Draw(img,
 			image.Rect(cx-sunR-2, cy-horizonH/2, cx+sunR+2, cy+sunR+sunCyOff+2),
 			&image.Uniform{GruvBgHard}, image.Point{}, draw.Src)
-		// Three rays flicking up around the sun's top arc.
+		// Five rays flicking up around the sun's top arc.
 		for _, ray := range []image.Point{
-			{X: cx - 90, Y: sunCy - 40},
-			{X: cx, Y: sunCy - 80},
-			{X: cx + 90, Y: sunCy - 40},
+			{X: cx - 150, Y: sunCy - 70},
+			{X: cx - 80, Y: sunCy - 130},
+			{X: cx, Y: sunCy - 150},
+			{X: cx + 80, Y: sunCy - 130},
+			{X: cx + 150, Y: sunCy - 70},
 		} {
-			fillCircle(img, ray.X, ray.Y, rayR, c)
+			fillCircle(img, ray.X, ray.Y, rayR, sunC)
 		}
 
 	case SceneStarTrek:

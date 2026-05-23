@@ -435,41 +435,38 @@ func TestParseTickerList(t *testing.T) {
 	}
 }
 
-func TestMarketsSymbolPrice(t *testing.T) {
+func TestMarketsChangeBoth(t *testing.T) {
 	cases := []struct {
 		name string
 		raw  string
 		want string
 	}{
 		{
-			name: "qqq with price",
-			raw:  "QQQ|$499.32|+1.2|+5.0|▁▂▃|2026-05-20",
-			// 19 chars total: "QQQ" (3) + pad + "$499.32" (7) = 19 → pad 9.
-			want: "QQQ         $499.32",
+			name: "positive week, negative month",
+			raw:  "QQQ|$1|+1.2|-3.7|.|d",
+			want: "▲ +1.2 %   ▼ -3.7 %",
 		},
 		{
-			name: "long symbol still gets at least one space",
-			raw:  "REALLYLONGSYM|$1,234,567.89|+1|+1|.|2026-05-20",
-			// 13 + 12 = 25 > 19 → pad clamps to 1.
-			want: "REALLYLONGSYM $1,234,567.89",
+			name: "both zero is neutral",
+			raw:  "QQQ|$1|+0.0|+0.0|.|d",
+			want: "· +0.0 %   · +0.0 %",
 		},
 		{
-			name: "empty raw",
+			name: "missing month falls back to week-only",
+			raw:  "QQQ|$1|+1.2",
+			want: "▲ +1.2 %",
+		},
+		{
+			name: "completely empty raw",
 			raw:  "",
 			want: "",
-		},
-		{
-			name: "single-segment raw (no price)",
-			raw:  "QQQ",
-			// 19 - 3 - 0 = 16 spaces
-			want: "QQQ                ",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, _ := marketsSymbolPrice(c.raw)
+			got, _ := marketsChangeBoth(c.raw)
 			if got != c.want {
-				t.Errorf("marketsSymbolPrice(%q) = %q, want %q", c.raw, got, c.want)
+				t.Errorf("marketsChangeBoth(%q) = %q, want %q", c.raw, got, c.want)
 			}
 		})
 	}
@@ -494,23 +491,22 @@ func TestSignColor(t *testing.T) {
 	}
 }
 
-func TestMarketsChange(t *testing.T) {
+func TestMarketsChangeBadge(t *testing.T) {
 	cases := []struct {
 		name string
-		seg  int
-		raw  string
+		v    string
 		want string
 	}{
-		{"positive week", 2, "QQQ|$1|+1.2|-3.7|.|d", "▲ +1.2 %"},
-		{"negative month", 3, "QQQ|$1|+1.2|-3.7|.|d", "▼ -3.7 %"},
-		{"zero is neutral", 2, "QQQ|$1|+0.0|-3.7|.|d", "· +0.0 %"},
-		{"missing segment is empty", 2, "QQQ", ""},
+		{"positive", "+1.2", "▲ +1.2 %"},
+		{"negative", "-3.7", "▼ -3.7 %"},
+		{"zero is neutral", "+0.0", "· +0.0 %"},
+		{"empty is empty", "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, _ := marketsChange(c.seg)(c.raw)
+			got := marketsChangeBadge(c.v)
 			if got != c.want {
-				t.Errorf("marketsChange(%d)(%q) = %q, want %q", c.seg, c.raw, got, c.want)
+				t.Errorf("marketsChangeBadge(%q) = %q, want %q", c.v, got, c.want)
 			}
 		})
 	}

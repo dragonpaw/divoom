@@ -531,66 +531,50 @@ func withThousands(n int) string {
 // --- markets formatters ---
 //
 // Widget output: "<SYM>|<price>|<week_pct>|<month_pct>|<sparkline>|<close_date>".
-// Six pipe-separated fields. The headline element joins seg[0] and seg[1]
-// with padding so they read as "SYMBOL    $price" on one line; the
-// week/month badges prepend an arrow + append "%"; the sparkline is
-// surfaced as-is via pipeAt(4). marketsColorize sets the badge colours
-// at activation time based on the sign of each percent value.
+// Six pipe-separated fields. The ticker symbol and price ride two
+// separate Text elements (left/right of one row) via pipeAt(0) and
+// pipeAt(1). The week + month badges live on a single combined row
+// rendered by marketsChangeBoth. The sparkline is surfaced as-is via
+// pipeAt(4). marketsColorize sets the combined-badge colour at
+// activation time based on the sign of the week percent.
 
-// marketsSymbolPriceTargetWidth is the character budget for the headline
-// row at the chosen FontSize 70 / fontMono / 720px-wide track. On-device
-// Iosevka glyphs measure ≈ 0.51 * FontSize wide (wider than the 0.42
-// initially estimated — QQQ + price wrapped at FS 80 / target 21), so
-// 720 / 36 ≈ 20 chars; 19 leaves a safety margin and still right-aligns
-// the price near the edge.
-const marketsSymbolPriceTargetWidth = 19
-
-// marketsSymbolPrice joins symbol + price with enough spaces between
-// them that the price ends near the right edge of the headline track.
-// Tolerates a missing/short raw string by surfacing whatever it can.
-func marketsSymbolPrice(raw string) (text, color string) {
-	parts := strings.Split(raw, "|")
-	sym := ""
-	price := ""
-	if len(parts) > 0 {
-		sym = parts[0]
-	}
-	if len(parts) > 1 {
-		price = parts[1]
-	}
-	if sym == "" && price == "" {
+// marketsChangeBoth renders the week + month percent badges on one
+// mono-padded row: "▲ +1.2 %   ▼ -3.7 %" / "· 0 %   ▼ -0.1 %" etc. The
+// two halves are joined by three spaces so the row reads as two
+// visually-separated badges within the device's 640px text track at
+// FontSize 60. Either half collapses to empty (and the gap closes) when
+// its widget segment is missing — defensive against pre-fetch state.
+func marketsChangeBoth(raw string) (text, color string) {
+	week := marketsChangeBadge(pipeAtRaw(raw, 2))
+	month := marketsChangeBadge(pipeAtRaw(raw, 3))
+	switch {
+	case week == "" && month == "":
 		return "", ""
+	case week == "":
+		return month, ""
+	case month == "":
+		return week, ""
 	}
-	pad := marketsSymbolPriceTargetWidth - len(sym) - len(price)
-	if pad < 1 {
-		pad = 1
-	}
-	return sym + strings.Repeat(" ", pad) + price, ""
+	return week + "   " + month, ""
 }
 
-// marketsChange returns a Format closure that renders pipe segment `seg`
-// (a signed percent value like "+1.2" or "-3.7") as a glyph + value +
-// "%" badge: "▲ +1.2 %" for positive, "▼ -3.7 %" for negative, "· 0 %"
-// for zero or unparseable. Colour is not set here — marketsColorize sets
-// FontColor on the element at activation time, since Format returns
-// just (text, color) and we want the colour even when the formatted
-// text differs from the raw value.
-func marketsChange(seg int) func(raw string) (text, color string) {
-	return func(raw string) (text, color string) {
-		v := pipeAtRaw(raw, seg)
-		if v == "" {
-			return "", ""
-		}
-		f, ok := parseSignedFloat(v)
-		arrow := "·"
-		switch {
-		case ok && f > 0:
-			arrow = "▲"
-		case ok && f < 0:
-			arrow = "▼"
-		}
-		return arrow + " " + v + " %", ""
+// marketsChangeBadge renders a single signed-percent value as a badge —
+// "▲ +1.2 %" for positive, "▼ -3.7 %" for negative, "· 0 %" for zero or
+// unparseable. Returns "" when v is empty so the caller can collapse a
+// missing half.
+func marketsChangeBadge(v string) string {
+	if v == "" {
+		return ""
 	}
+	f, ok := parseSignedFloat(v)
+	arrow := "·"
+	switch {
+	case ok && f > 0:
+		arrow = "▲"
+	case ok && f < 0:
+		arrow = "▼"
+	}
+	return arrow + " " + v + " %"
 }
 
 // parseSignedFloat parses a "+1.2" / "-3.7" / "0" string. Tolerant of a
@@ -617,24 +601,22 @@ func signColor(v float64) string {
 	}
 }
 
-// marketsColorize sets the week/month badge FontColors from the sign of
-// each percent value. Runs as the markets scene's OnActivate, after the
-// Mounts have set TextMessage but before the layout ships to the device.
+// marketsColorize sets the combined week+month badge FontColor from the
+// sign of the WEEK percent — week is the primary signal (more recent
+// than month, less noisy than day-of). The month sign reads from the
+// glyph (▲/▼) inside the badge text. Runs as the markets scene's
+// OnActivate, after the Mounts have set TextMessage but before the
+// layout ships to the device.
 func marketsColorize(_ time.Time, raw string, elements []frame.DispElement) {
 	week, weekOK := parseSignedFloat(pipeAtRaw(raw, 2))
-	month, monthOK := parseSignedFloat(pipeAtRaw(raw, 3))
+	if !weekOK {
+		return
+	}
 	for i := range elements {
 		// IDs are offset per-install (see Driver.activate); match by the
 		// low-order ID since OnActivate runs before the offset is added.
-		switch elements[i].ID {
-		case idSceneSub1:
-			if weekOK {
-				elements[i].FontColor = signColor(week)
-			}
-		case idSceneSub2:
-			if monthOK {
-				elements[i].FontColor = signColor(month)
-			}
+		if elements[i].ID == idSceneSub2 {
+			elements[i].FontColor = signColor(week)
 		}
 	}
 }
@@ -1833,23 +1815,53 @@ func formatISSCoordsNSEW(s string) string {
 	return fmt.Sprintf("%.1f° %s   %.1f° %s", lat, latHem, lon, lonHem)
 }
 
-// issCoordsAndPass is the scene mount formatter for the ISS scene's
-// coords-and-pass row. It joins the reformatted coordinates from
-// pipe[0] with the next-pass string from pipe[1], rewriting the
-// widget's "next pass in 1h 04m" prefix to the more compact
-// "next pass · 1h 04m" form the scene uses. Missing pass text is
-// dropped silently so a flaky upstream just shows the coordinates.
-func issCoordsAndPass(raw string) (text, color string) {
-	coords := formatISSCoordsNSEW(pipeAtRaw(raw, 0))
-	pass := pipeAtRaw(raw, 1)
-	pass = strings.TrimPrefix(pass, "next pass in ")
-	if pass != "" {
-		pass = "next pass · " + pass
-	}
+// issCoordsOnly is the scene mount formatter for the ISS scene's coords
+// row. Surfaces just the reformatted "12.3° N   45.6° E" string; the
+// next-pass field lives on its own row (see issNextPass).
+func issCoordsOnly(raw string) (text, color string) {
+	return formatISSCoordsNSEW(pipeAtRaw(raw, 0)), ""
+}
+
+// issNextPass is the scene mount formatter for the ISS scene's next-pass
+// row. Rewrites the widget's "next pass in 1h 04m" string into the
+// compact "next pass · 1h 04m" form the scene uses; returns "" when the
+// widget's pass segment is empty so the row collapses cleanly.
+func issNextPass(raw string) (text, color string) {
+	pass := strings.TrimPrefix(pipeAtRaw(raw, 1), "next pass in ")
 	if pass == "" {
-		return coords, ""
+		return "", ""
 	}
-	return coords + "       " + pass, ""
+	return "next pass · " + pass, ""
+}
+
+// parseISSPassDuration parses the widget's pass segment ("next pass in
+// 1h 23m" or "1h 23m" or "47m") into a time.Duration. Returns ok=false
+// for any input that doesn't match either shape so callers don't have
+// to guess.
+func parseISSPassDuration(s string) (time.Duration, bool) {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "next pass in ")
+	if s == "" {
+		return 0, false
+	}
+	var h, m int
+	if i := strings.Index(s, "h "); i > 0 {
+		v, err := strconv.Atoi(strings.TrimSpace(s[:i]))
+		if err != nil {
+			return 0, false
+		}
+		h = v
+		s = strings.TrimSpace(s[i+2:])
+	}
+	if i := strings.Index(s, "m"); i > 0 {
+		v, err := strconv.Atoi(strings.TrimSpace(s[:i]))
+		if err != nil {
+			return 0, false
+		}
+		m = v
+	} else {
+		return 0, false
+	}
+	return time.Duration(h)*time.Hour + time.Duration(m)*time.Minute, true
 }
 
 // pipeAtRaw returns the i-th pipe-separated segment of raw, or "" if

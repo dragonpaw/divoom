@@ -8,42 +8,51 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// marketsScene — trading-terminal readout: "<SYM>            $price" on
-// one big mono headline, week-/month-percent badges with arrow + colour
-// underneath, and a Unicode-block sparkline of the last ~35 closes
-// across the bottom. The DIVOOM_TICKERS env var rotates one symbol per
-// activation; see finance.NewRotating.
+// marketsScene — trading-terminal readout: ticker symbol on the left and
+// price on the right of one big mono headline row, a combined week/month
+// percent badge underneath (mono-padded so the two halves align), and a
+// Unicode-block sparkline of the last ~35 closes across the bottom. The
+// DIVOOM_TICKERS env var rotates one symbol per activation; see
+// finance.NewRotating.
 //
-// Element count stays at the device's 6-Text + 1-Time cap by collapsing
-// the symbol and price into a single padded Text element (see
-// marketsSymbolPrice); the captions "1 week" / "1 month" are baked into
-// the background by drawMarketsChrome.
+// Element count: baked title (0) + symbol (1) + price (1) + combined
+// week/month badge (1) + sparkline (1) = 4 scene Text. Plus 2 always-on
+// Text = 6 Text. At the device's per-type cap. The captions "1 week" /
+// "1 month" sit under the badge row, baked by drawMarketsChrome; the
+// ticker symbol itself is NOT baked because DIVOOM_TICKERS may rotate
+// among several symbols and one bg per ticker would multiply the bake
+// pool unnecessarily.
 func marketsScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "markets",
 		Weight: 20,
 		BgPath: bgMarkets,
 		Elements: []frame.DispElement{
-			// Symbol + price on one line — left-aligned, padded so the
-			// price reads as right-of-centre on the 720px text track.
+			// Ticker symbol — left-aligned, ticker-coloured (cYellow as a
+			// quiet accent that doesn't compete with the green/red badge
+			// signal below). On the same y-row as the price element.
 			{
 				ID: idSceneMain, Type: "Text",
-				StartX: 40, StartY: 540, Width: 720, Height: 120,
-				Align: 0, FontSize: 70, FontID: fontMono,
-				FontColor: cFg, BgColor: cBgHard,
+				StartX: 80, StartY: 540, Width: 640, Height: 120,
+				Align: 0, FontSize: 80, FontID: fontMono,
+				FontColor: cYellow, BgColor: cBgHard,
 			},
-			// Week percent badge — "▲ +1.2 %" / "▼ -3.7 %" / "· 0 %".
-			// Colour set per-activation by marketsColorize.
+			// Price — right-aligned, white. Shares the headline row with
+			// the symbol so the eye reads "QQQ ... $478.21" left-to-right.
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 80, StartY: 720, Width: 320, Height: 120,
-				Align: 2, FontSize: 60, FontID: fontMono,
-				FontColor: cFgDark, BgColor: cBgHard,
+				StartX: 80, StartY: 540, Width: 640, Height: 120,
+				Align: 1, FontSize: 80, FontID: fontMono,
+				FontColor: cFg, BgColor: cBgHard,
 			},
-			// Month percent badge — same shape.
+			// Combined week + month percent badge — "▲ +1.2 %   ▼ -3.7 %",
+			// mono-padded so the two halves visually split the row.
+			// Colour is set per-activation by marketsColorize from the
+			// sign of the week percent (the month sign is the secondary
+			// signal; one colour per row keeps the read fast).
 			{
 				ID: idSceneSub2, Type: "Text",
-				StartX: 400, StartY: 720, Width: 320, Height: 120,
+				StartX: 80, StartY: 720, Width: 640, Height: 120,
 				Align: 2, FontSize: 60, FontID: fontMono,
 				FontColor: cFgDark, BgColor: cBgHard,
 			},
@@ -57,9 +66,9 @@ func marketsScene(widgets map[string]widget.Widget) *scene.Scene {
 		},
 		Widget: widgets["markets"],
 		Mounts: []scene.Mount{
-			{ID: idSceneMain, Format: marketsSymbolPrice},
-			{ID: idSceneSub1, Format: marketsChange(2)},
-			{ID: idSceneSub2, Format: marketsChange(3)},
+			{ID: idSceneMain, Format: pipeAt(0)},
+			{ID: idSceneSub1, Format: pipeAt(1)},
+			{ID: idSceneSub2, Format: marketsChangeBoth},
 			{ID: idSceneSub3, Format: pipeAt(4)},
 		},
 		OnActivate: marketsColorize,

@@ -13,21 +13,32 @@ import (
 // by a small downward triangle whose x is recomputed at every scene
 // activation. Sunrise time sits under the left end of the arc in yellow,
 // sunset time under the right end in orange. The arc, three reference
-// ticks (sunrise / noon / sunset), the static labels, and the daylight-
-// duration headline are all baked into the bg JPG (see
-// render.SunriseBackground); only the four device Text elements below
-// vary per activation.
+// ticks (sunrise / noon / sunset), and the static labels are baked into
+// the bg JPG (see render.SunriseBackground). The daylight-duration
+// headline used to be baked too, but the bg is only pushed once at
+// daemon startup so the baked headline went stale across day boundaries;
+// it now lives in a device Text element fed from pipe[2] of the widget,
+// matching how the sunrise/sunset times are wired.
 //
-// Element count: 4 body Text + 2 always-on Text + 1 always-on Time = 6
-// Text + 1 Time, within the device's 6-Text-per-scene cap. See the spec
-// audit in todo/iss-scene-polish.md (sunrise section).
+// Element count: baked title (0) + daylight (1) + sunrise time (1) +
+// sunset time (1) + current-time tick (1) = 4 scene Text + 2 always-on
+// Text = 6 Text + 1 Time + 1 Week, within the device's 6-Text-per-scene
+// cap.
 func sunriseScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "sunrise",
 		Weight: 20,
 		BgPath: bgSunrise,
 		Elements: []frame.DispElement{
-			sceneTitle("today"),
+			// Daylight headline above the arc — large mono, centred,
+			// pipe[2] of the widget ("13h 16m"). Re-rendered per scene
+			// activation so it stays correct across midnight rollovers.
+			{
+				ID: idSceneMain, Type: "Text",
+				StartX: 40, StartY: 600, Width: 720, Height: 120,
+				Align: 2, FontSize: 96, FontID: fontMono,
+				FontColor: cFg, BgColor: cBgHard,
+			},
 			// Sunrise time — left, yellow, just below the arc's left end.
 			{
 				ID: idSceneSub1, Type: "Text",
@@ -57,6 +68,7 @@ func sunriseScene(widgets map[string]widget.Widget) *scene.Scene {
 		},
 		Widget: widgets["sunrise"],
 		Mounts: []scene.Mount{
+			{ID: idSceneMain, Format: pipeAt(2)},
 			{ID: idSceneSub1, Format: pipeAt(0)},
 			{ID: idSceneSub2, Format: pipeAt(1)},
 		},
