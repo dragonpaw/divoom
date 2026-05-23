@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -147,9 +148,13 @@ func bakeOneNASAImage(ctx context.Context, apiKey, date string) ([]byte, error) 
 		return nil, fmt.Errorf("apod %s is %q, not image", date, body.MediaType)
 	}
 
-	imgURL := body.HDURL
+	// Prefer the standard-res `url` over `hdurl` — the display slot is
+	// only 760×540 so the multi-MB HD versions are pure download cost
+	// for no visible benefit, and they're the most likely target for
+	// CDN throttling during a 123-image push.
+	imgURL := body.URL
 	if imgURL == "" {
-		imgURL = body.URL
+		imgURL = body.HDURL
 	}
 	if imgURL == "" {
 		return nil, fmt.Errorf("apod %s has no image url", date)
@@ -181,30 +186,83 @@ func bakeOneNASAImage(ctx context.Context, apiKey, date string) ([]byte, error) 
 }
 
 // fetchAPOD calls the NASA APOD endpoint. When date is "" the API
-// returns today's entry; otherwise the YYYY-MM-DD entry.
+// returns today's entry; otherwise the YYYY-MM-DD entry. Honours 429
+// with Retry-After (sleeps then retries up to nasaRateLimitRetries
+// times) — needed for the 123-image push run which can otherwise burn
+// through the hourly quota mid-bake.
 func fetchAPOD(ctx context.Context, apiKey, date string) (*nasaAPODResponse, error) {
+	const nasaRateLimitRetries = 4
 	url := nasaAPIBase + "?api_key=" + apiKey
 	if date != "" {
 		url += "&date=" + date
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
 	client := &http.Client{Timeout: httpFetchTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			wait := retryAfterDuration(resp.Header.Get("Retry-After"))
+			resp.Body.Close()
+			if attempt >= nasaRateLimitRetries {
+				return nil, fmt.Errorf("http 429 after %d retries", attempt)
+			}
+			slog.Warn("apod rate-limited (429); sleeping before retry",
+				"date", date, "wait", wait, "attempt", attempt+1)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode/100 != 2 {
+			return nil, fmt.Errorf("http %d", resp.StatusCode)
+		}
+		var body nasaAPODResponse
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		return &body, nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("http %d", resp.StatusCode)
+}
+
+// retryAfterDuration parses an HTTP Retry-After header into a sleep
+// duration. The header may be either an integer count of seconds
+// ("60") or an HTTP-date ("Wed, 21 Oct 2026 07:28:00 GMT"). Returns a
+// 60-second default when the header is empty or unparseable so the
+// caller always has a sane sleep value.
+func retryAfterDuration(header string) time.Duration {
+	const defaultWait = 60 * time.Second
+	const maxWait = 30 * time.Minute
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return defaultWait
 	}
-	var body nasaAPODResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, err
+	if secs, err := strconv.Atoi(header); err == nil && secs > 0 {
+		d := time.Duration(secs) * time.Second
+		if d > maxWait {
+			d = maxWait
+		}
+		return d
 	}
-	return &body, nil
+	if t, err := http.ParseTime(header); err == nil {
+		d := time.Until(t)
+		if d <= 0 {
+			return defaultWait
+		}
+		if d > maxWait {
+			d = maxWait
+		}
+		return d
+	}
+	return defaultWait
 }
 
 // --- Cocktail -----------------------------------------------------------
