@@ -50,9 +50,9 @@ type wordnikResponse struct {
 	} `json:"definitions"`
 	// Pronunciations is the Wordnik WOTD's optional pronunciation list.
 	// We surface the first entry's Raw value (typically IPA) as the
-	// fourth pipe segment so the ceremony-style scene can render it
-	// beside the POS tag. RawType is ignored — the StyleCeremony layout
-	// only displays the string, not its notation system.
+	// fourth pipe segment so the scene can render it on its own row
+	// under the headword. RawType is ignored — the scene only displays
+	// the string, not its notation system.
 	Pronunciations []struct {
 		Raw     string `json:"raw"`
 		RawType string `json:"rawType"`
@@ -100,8 +100,8 @@ func (w *Wordnik) Fetch(ctx context.Context) (string, error) {
 // dropped so the regex's POS-optional fallback still extracts the
 // headword. The definition has Wordnik's HTML tags (<xref>, <i>) stripped
 // since the device renderer treats them as literal text. pron, when
-// non-empty, is surfaced as a fourth pipe segment so StyleCeremony can
-// render it beside the POS tag; the baked fallback list passes "".
+// non-empty, is surfaced as a fourth pipe segment so the scene can
+// render it under the headword; the baked fallback list passes "".
 func formatWOTD(word, pos, definition, pron string) string {
 	entry := strings.ToUpper(word) + ", " + abbreviatePOS(pos) + " " + stripTags(definition)
 	return "Word of the Day|" + entry + "||" + pron

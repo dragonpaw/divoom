@@ -651,17 +651,18 @@ func TestMarketsChangeBadge(t *testing.T) {
 func TestDictionaryStyleDispatch(t *testing.T) {
 	cases := []struct {
 		name    string
+		scene   string
 		style   DictionaryStyle
 		wantIDs []int
 	}{
-		{"manpage (jargon)", StyleManpage, []int{idSceneSub1, idSceneSub2, idSceneSub3}},
-		{"punchline (devil)", StylePunchline, []int{idSceneSub1, idSceneSub2}},
-		{"ceremony (wordnik)", StyleCeremony, []int{idSceneSub1, idSceneSub2, idSceneSub3}},
+		{"manpage (jargon)", "jargon", StyleManpage, []int{idSceneSub1, idSceneSub2, idSceneSub3}},
+		{"punchline (devil)", "devil", StylePunchline, []int{idSceneSub1, idSceneSub2}},
+		{"manpage (wordnik)", "wordnik", StyleManpage, []int{idSceneSub1, idSceneSub2, idSceneSub3}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := DictionaryScene(DictionarySceneOpts{
-				Name: "jargon", // a real registry entry so headwordX measurement doesn't barf
+				Name:  tc.scene,
 				Style: tc.style,
 			})
 			if len(s.Elements) != len(tc.wantIDs) {
@@ -751,33 +752,65 @@ func TestDevilHeader(t *testing.T) {
 	}
 }
 
-// TestWordnikHeadwordSpacing: letter-spacing transform inserts a regular
-// space between adjacent letters of the headword.
-func TestWordnikHeadwordSpacing(t *testing.T) {
+// TestWordnikHeadwordPOS: header line combines HEADWORD + POS with a
+// double-space separator, matching jargon's manpage shape.
+func TestWordnikHeadwordPOS(t *testing.T) {
 	cases := []struct {
 		name, raw, want string
 	}{
 		{
-			"single word",
+			"adjective entry",
 			"Word of the Day|EPHEMERAL, adj. Lasting briefly.||",
-			"E P H E M E R A L",
+			"EPHEMERAL  adj.",
 		},
 		{
-			"two-letter word",
-			"Word of the Day|ON, prep. A short word.||",
-			"O N",
+			"with pronunciation segment present",
+			"Word of the Day|EPHEMERAL, adj. Lasting briefly.||/x/",
+			"EPHEMERAL  adj.",
 		},
 		{
-			"empty",
+			"missing POS — headword only",
+			"Word of the Day|FOO bar baz|",
+			"FOO",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := wordnikHeadwordPOS(tc.raw)
+			if got != tc.want {
+				t.Errorf("wordnikHeadwordPOS(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestWordnikPronunciation: surfaces the fourth pipe segment (IPA) and
+// returns "" when it's missing.
+func TestWordnikPronunciation(t *testing.T) {
+	cases := []struct {
+		name, raw, want string
+	}{
+		{
+			"with IPA",
+			"Word of the Day|EPHEMERAL, adj. Lasting briefly.||/x/",
+			"/x/",
+		},
+		{
+			"no pronunciation",
+			"Word of the Day|EPHEMERAL, adj. Lasting briefly.||",
+			"",
+		},
+		{
+			"empty raw",
 			"",
 			"",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, _ := wordnikHeadword(tc.raw)
+			got, _ := wordnikPronunciation(tc.raw)
 			if got != tc.want {
-				t.Errorf("wordnikHeadword(%q) = %q, want %q", tc.raw, got, tc.want)
+				t.Errorf("wordnikPronunciation(%q) = %q, want %q", tc.raw, got, tc.want)
 			}
 		})
 	}

@@ -1655,42 +1655,24 @@ func devilHeader(raw string) (text, color string) {
 	return w + ", " + p, ""
 }
 
-// MARKER_FOR_DELETION
-// for the StyleCeremony layout, e.g. "EPHEMERAL" → "E P H E M E R A L".
-// Thin space (U+2009) is narrower than a regular space so the letters
-// read as one word rather than dissociated columns.
-func wordnikHeadword(raw string) (text, color string) {
+// wordnikHeadwordPOS builds wordnik's manpage-style header line:
+// "HEADWORD  pos." flush right of the baked "$ wotd YYYY-MM-DD" prompt.
+// Same shape as jargonHeader minus the pronunciation segment — wordnik's
+// layout surfaces the IPA on its own dedicated row underneath.
+func wordnikHeadwordPOS(raw string) (text, color string) {
 	w, _ := dictionaryWord(raw)
-	if w == "" {
-		return "", ""
+	p, _ := dictionaryPOS(raw)
+	if p == "" {
+		return w, ""
 	}
-	var b strings.Builder
-	runes := []rune(w)
-	for i, r := range runes {
-		if i > 0 {
-			b.WriteRune(' ')
-		}
-		b.WriteRune(r)
-	}
-	return b.String(), ""
+	return w + "  " + p, ""
 }
 
-// wordnikPosPron combines POS + pronunciation into one line for
-// StyleCeremony's small caption row. The widget's third pipe segment
-// (when present) carries the IPA pronunciation; otherwise just POS.
-func wordnikPosPron(raw string) (text, color string) {
-	p, _ := dictionaryPOS(raw)
-	pron := pipeAtRaw(raw, 3)
-	switch {
-	case p != "" && pron != "":
-		return p + "    " + pron, ""
-	case p != "":
-		return p, ""
-	case pron != "":
-		return pron, ""
-	default:
-		return "", ""
-	}
+// wordnikPronunciation returns the widget's fourth pipe segment — the
+// IPA pronunciation — or "" when the entry lacks one. The scene's
+// AllowEmpty mount keeps the row blank in that case.
+func wordnikPronunciation(raw string) (text, color string) {
+	return strings.TrimSpace(pipeAtRaw(raw, 3)), ""
 }
 
 // fitDevilBody auto-shrinks the punchline FontSize for long aphorisms.
@@ -1740,33 +1722,6 @@ func fitDevilBody(text string, e frame.DispElement) frame.DispElement {
 	} else {
 		e.Height = rendered
 	}
-	return e
-}
-
-// fitWordnikHeadword auto-shrinks the monumental headword FontSize when
-// a long letter-spaced word would overflow the 720px track. The thin
-// spaces between letters make every word ~2x its bare letter count, so
-// the budget shrinks fast for longer words.
-func fitWordnikHeadword(text string, e frame.DispElement) frame.DispElement {
-	const (
-		maxFontSize    = 110
-		minFontSize    = 56
-		charWidthRatio = 0.45 // empirical for Roboto Condensed Light at this size
-	)
-	if text == "" {
-		return e
-	}
-	runes := []rune(text)
-	estimated := int(float64(len(runes)) * float64(maxFontSize) * charWidthRatio)
-	if estimated <= e.Width {
-		e.FontSize = maxFontSize
-		return e
-	}
-	shrunk := int(float64(e.Width) / (float64(len(runes)) * charWidthRatio))
-	if shrunk < minFontSize {
-		shrunk = minFontSize
-	}
-	e.FontSize = shrunk
 	return e
 }
 
