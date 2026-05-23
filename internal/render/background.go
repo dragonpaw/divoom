@@ -133,6 +133,13 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// so the frame still renders. Production callers use
 		// SceneMoonphaseBackground to pick the right variant.
 		drawMoonDisc(img, 7)
+	case SceneMarkets:
+		// Markets scene chrome: a hairline under the symbol+price
+		// headline, baked "1 week" / "1 month" captions under the badge
+		// row, and a footer hairline. The bar-chart corner glyph stays
+		// as the scene's ambient mark.
+		drawSceneGlyph(img, scene)
+		drawMarketsChrome(img)
 	case SceneHN:
 		// HN scene chrome: "HACKER NEWS" wordmark + orange rule under
 		// it + dim footer rule above the metadata row. The Y glyph in
@@ -439,6 +446,47 @@ func glyphAnchorFor(family QuoteFamily) (cx, cy int) {
 	default:
 		return CanvasW - 180, CanvasH - 240
 	}
+}
+
+// drawMarketsChrome bakes the markets scene's trading-terminal
+// furniture: a 2px hairline under the symbol+price headline, "1 week"
+// and "1 month" captions centred under the percent badges, and a 1px
+// footer hairline near the bottom of the body track. The bar-chart
+// corner glyph is painted separately by drawSceneGlyph.
+func drawMarketsChrome(img *image.RGBA) {
+	const (
+		left          = 80
+		right         = CanvasW - 80
+		headlineRuleY = 680 // top of the 2px rule under the headline
+		headlineRuleH = 2
+		captionBase   = 880 // baseline for "1 week" / "1 month"
+		footerRuleY   = 1110
+	)
+	// Hairline under the headline.
+	draw.Draw(img, image.Rect(left, headlineRuleY, right, headlineRuleY+headlineRuleH),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+
+	// "1 week" / "1 month" captions in Roboto Condensed Light 22pt.
+	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 22, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			defer face.Close()
+			// Left column centred on x = (80+400)/2 = 240; right column on
+			// (400+720)/2 = 560. Matches the badge element X spans above.
+			drawLabelCentered(img, "1 week", face, (80+400)/2, captionBase, GruvFgDark)
+			drawLabelCentered(img, "1 month", face, (400+720)/2, captionBase, GruvFgDark)
+		} else {
+			slog.Warn("markets chrome: face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("markets chrome: font load failed", "err", err)
+	}
+
+	// Footer hairline.
+	draw.Draw(img, image.Rect(left, footerRuleY, right, footerRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
 }
 
 // drawHNChrome bakes the HN scene's brand chrome: the "HACKER NEWS"

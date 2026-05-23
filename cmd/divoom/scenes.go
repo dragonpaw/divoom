@@ -406,47 +406,113 @@ func githubPRs(raw string) (text, color string) {
 	return parts[2] + " open PRs", cAqua
 }
 
-// --- QQQ formatters ---
+// --- markets formatters ---
 //
-// Widget output: "QQQ  -0.6% 1W   +9.2% 1M". Split into three rows;
-// week and month rows take their color from the sign of their value.
+// Widget output: "<SYM>|<price>|<week_pct>|<month_pct>|<sparkline>|<close_date>".
+// Six pipe-separated fields. The headline element joins seg[0] and seg[1]
+// with padding so they read as "SYMBOL    $price" on one line; the
+// week/month badges prepend an arrow + append "%"; the sparkline is
+// surfaced as-is via pipeAt(4). marketsColorize sets the badge colours
+// at activation time based on the sign of each percent value.
 
-func qqqSymbol(s string) (text, color string) {
-	if parts := strings.Fields(s); len(parts) > 0 {
-		return parts[0], ""
+// marketsSymbolPriceTargetWidth is the character budget for the headline
+// row at the chosen FontSize 80 / fontMono / 720px-wide track. Empirical
+// for Iosevka regular: each glyph ≈ 0.42 * FontSize wide, so 720 / 34 ≈ 21
+// chars fit comfortably; we pad to 21 columns so the price right-aligns
+// without overflowing.
+const marketsSymbolPriceTargetWidth = 21
+
+// marketsSymbolPrice joins symbol + price with enough spaces between
+// them that the price ends near the right edge of the headline track.
+// Tolerates a missing/short raw string by surfacing whatever it can.
+func marketsSymbolPrice(raw string) (text, color string) {
+	parts := strings.Split(raw, "|")
+	sym := ""
+	price := ""
+	if len(parts) > 0 {
+		sym = parts[0]
 	}
-	return s, ""
+	if len(parts) > 1 {
+		price = parts[1]
+	}
+	if sym == "" && price == "" {
+		return "", ""
+	}
+	pad := marketsSymbolPriceTargetWidth - len(sym) - len(price)
+	if pad < 1 {
+		pad = 1
+	}
+	return sym + strings.Repeat(" ", pad) + price, ""
 }
 
-// qqqWeekPct returns just the week percent (e.g. "+9.2%") colored by sign.
-// The "1W" suffix is dropped — the row's "week" caption supplies that.
-func qqqWeekPct(s string) (text, color string) {
-	parts := strings.Fields(s)
-	if len(parts) < 2 {
-		return s, ""
+// marketsChange returns a Format closure that renders pipe segment `seg`
+// (a signed percent value like "+1.2" or "-3.7") as a glyph + value +
+// "%" badge: "▲ +1.2 %" for positive, "▼ -3.7 %" for negative, "· 0 %"
+// for zero or unparseable. Colour is not set here — marketsColorize sets
+// FontColor on the element at activation time, since Format returns
+// just (text, color) and we want the colour even when the formatted
+// text differs from the raw value.
+func marketsChange(seg int) func(raw string) (text, color string) {
+	return func(raw string) (text, color string) {
+		v := pipeAtRaw(raw, seg)
+		if v == "" {
+			return "", ""
+		}
+		f, ok := parseSignedFloat(v)
+		arrow := "·"
+		switch {
+		case ok && f > 0:
+			arrow = "▲"
+		case ok && f < 0:
+			arrow = "▼"
+		}
+		return arrow + " " + v + " %", ""
 	}
-	return parts[1], directionalColor(parts[1])
 }
 
-// qqqMonthPct returns just the month percent, similarly.
-func qqqMonthPct(s string) (text, color string) {
-	parts := strings.Fields(s)
-	if len(parts) < 4 {
-		return s, ""
+// parseSignedFloat parses a "+1.2" / "-3.7" / "0" string. Tolerant of a
+// leading "+" (strconv.ParseFloat is happy with that on modern Go but the
+// helper keeps the call sites simple).
+func parseSignedFloat(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(strings.TrimPrefix(s, "+"), 64)
+	if err != nil {
+		return 0, false
 	}
-	return parts[3], directionalColor(parts[3])
+	return f, true
 }
 
-// directionalColor: green for positive (up), red for negative (down),
-// neutral for zero or unparseable.
-func directionalColor(s string) string {
+// signColor returns the gruvbox accent for a directional value:
+// green positive, red negative, dim neutral.
+func signColor(v float64) string {
 	switch {
-	case strings.HasPrefix(s, "+"):
+	case v > 0:
 		return cGreen
-	case strings.HasPrefix(s, "-"):
+	case v < 0:
 		return cRed
 	default:
-		return ""
+		return cFgDark
+	}
+}
+
+// marketsColorize sets the week/month badge FontColors from the sign of
+// each percent value. Runs as the markets scene's OnActivate, after the
+// Mounts have set TextMessage but before the layout ships to the device.
+func marketsColorize(_ time.Time, raw string, elements []frame.DispElement) {
+	week, weekOK := parseSignedFloat(pipeAtRaw(raw, 2))
+	month, monthOK := parseSignedFloat(pipeAtRaw(raw, 3))
+	for i := range elements {
+		// IDs are offset per-install (see Driver.activate); match by the
+		// low-order ID since OnActivate runs before the offset is added.
+		switch elements[i].ID {
+		case idSceneSub1:
+			if weekOK {
+				elements[i].FontColor = signColor(week)
+			}
+		case idSceneSub2:
+			if monthOK {
+				elements[i].FontColor = signColor(month)
+			}
+		}
 	}
 }
 

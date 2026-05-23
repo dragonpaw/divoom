@@ -439,3 +439,112 @@ func TestTILBody(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTickerList(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		{"empty returns nil", "", nil},
+		{"whitespace-only returns nil", "   ", nil},
+		{"single symbol", "qqq", []string{"QQQ"}},
+		{"multi with whitespace", " aapl, msft ,  btc-usd ", []string{"AAPL", "MSFT", "BTC-USD"}},
+		{"drops empty entries", "qqq,,aapl,", []string{"QQQ", "AAPL"}},
+		{"case normalised", "btc-usd,Eth-USD", []string{"BTC-USD", "ETH-USD"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseTickerList(c.env)
+			if len(got) != len(c.want) {
+				t.Fatalf("parseTickerList(%q) = %v, want %v", c.env, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("parseTickerList(%q)[%d] = %q, want %q", c.env, i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestMarketsSymbolPrice(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "qqq with price",
+			raw:  "QQQ|$499.32|+1.2|+5.0|▁▂▃|2026-05-20",
+			// 21 chars total: "QQQ" (3) + pad + "$499.32" (7) = 21 → pad 11.
+			want: "QQQ           $499.32",
+		},
+		{
+			name: "long symbol still gets at least one space",
+			raw:  "REALLYLONGSYM|$1,234,567.89|+1|+1|.|2026-05-20",
+			// 13 + 12 = 25 > 21 → pad clamps to 1.
+			want: "REALLYLONGSYM $1,234,567.89",
+		},
+		{
+			name: "empty raw",
+			raw:  "",
+			want: "",
+		},
+		{
+			name: "single-segment raw (no price)",
+			raw:  "QQQ",
+			// 21 - 3 - 0 = 18 spaces
+			want: "QQQ                  ",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, _ := marketsSymbolPrice(c.raw)
+			if got != c.want {
+				t.Errorf("marketsSymbolPrice(%q) = %q, want %q", c.raw, got, c.want)
+			}
+		})
+	}
+}
+
+func TestSignColor(t *testing.T) {
+	cases := []struct {
+		v    float64
+		want string
+	}{
+		{1.0, cGreen},
+		{0.01, cGreen},
+		{-1.0, cRed},
+		{-0.01, cRed},
+		{0.0, cFgDark},
+	}
+	for _, c := range cases {
+		got := signColor(c.v)
+		if got != c.want {
+			t.Errorf("signColor(%v) = %q, want %q", c.v, got, c.want)
+		}
+	}
+}
+
+func TestMarketsChange(t *testing.T) {
+	cases := []struct {
+		name string
+		seg  int
+		raw  string
+		want string
+	}{
+		{"positive week", 2, "QQQ|$1|+1.2|-3.7|.|d", "▲ +1.2 %"},
+		{"negative month", 3, "QQQ|$1|+1.2|-3.7|.|d", "▼ -3.7 %"},
+		{"zero is neutral", 2, "QQQ|$1|+0.0|-3.7|.|d", "· +0.0 %"},
+		{"missing segment is empty", 2, "QQQ", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, _ := marketsChange(c.seg)(c.raw)
+			if got != c.want {
+				t.Errorf("marketsChange(%d)(%q) = %q, want %q", c.seg, c.raw, got, c.want)
+			}
+		})
+	}
+}

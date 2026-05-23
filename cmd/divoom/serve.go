@@ -81,7 +81,7 @@ func runServe(ctx context.Context) error {
 	}()
 
 	widgets := map[string]widget.Widget{
-		"markets":    finance.NewTicker("QQQ"),
+		"markets":    finance.NewRotating(parseTickerList(os.Getenv("DIVOOM_TICKERS"))),
 		"moonphase":  sky.NewMoon(),
 		"hn":         news.NewHN(hnKeywords),
 		"dayofyear":  calendar.NewDayOfYear(),
