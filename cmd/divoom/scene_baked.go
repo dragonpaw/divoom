@@ -236,31 +236,22 @@ func fetchAPOD(ctx context.Context, apiKey, date string) (*nasaAPODResponse, err
 // retryAfterDuration parses an HTTP Retry-After header into a sleep
 // duration. The header may be either an integer count of seconds
 // ("60") or an HTTP-date ("Wed, 21 Oct 2026 07:28:00 GMT"). Returns a
-// 60-second default when the header is empty or unparseable so the
-// caller always has a sane sleep value.
+// 60-second default when the header is empty or unparseable. No
+// upper cap — if APOD asks us to wait an hour for the quota to
+// reset, we wait an hour; ctx.Done() still aborts on Ctrl-C.
 func retryAfterDuration(header string) time.Duration {
 	const defaultWait = 60 * time.Second
-	const maxWait = 30 * time.Minute
 	header = strings.TrimSpace(header)
 	if header == "" {
 		return defaultWait
 	}
 	if secs, err := strconv.Atoi(header); err == nil && secs > 0 {
-		d := time.Duration(secs) * time.Second
-		if d > maxWait {
-			d = maxWait
-		}
-		return d
+		return time.Duration(secs) * time.Second
 	}
 	if t, err := http.ParseTime(header); err == nil {
-		d := time.Until(t)
-		if d <= 0 {
-			return defaultWait
+		if d := time.Until(t); d > 0 {
+			return d
 		}
-		if d > maxWait {
-			d = maxWait
-		}
-		return d
 	}
 	return defaultWait
 }
