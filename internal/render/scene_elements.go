@@ -60,6 +60,8 @@ func fontFileForID(id int) string {
 		return "RobotoCondensed-Regular.ttf"
 	case 11: // fontProseLight
 		return "RobotoCondensed-Light.ttf"
+	case 13: // fontProseBlack
+		return "RobotoCondensed-Black.ttf"
 	default:
 		return "RobotoCondensed-Regular.ttf"
 	}

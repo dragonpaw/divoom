@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch the three custom TTFs that `divoom push` installs on the Times
+# Fetch the custom TTFs that `divoom push` installs on the Times
 # Frame. Run once on the USB-attached host before the first `divoom push`.
 # Files land in ./fonts/, which is gitignored — the TTFs are big (Iosevka
 # is ~10 MB) and don't belong in the repo.
@@ -8,6 +8,11 @@
 #   - Iosevka-Regular.ttf       — Iosevka 34.5.0 GitHub release
 #   - RobotoCondensed-Regular.ttf — googlefonts/roboto hinted sources
 #   - RobotoCondensed-Light.ttf   — googlefonts/roboto hinted sources
+#   - RobotoCondensed-Black.ttf   — Google Fonts CDN (fonts.gstatic.com).
+#     Black weight isn't in the legacy googlefonts/roboto classic repo
+#     (no Bold/Black/etc. in src/hinted), so we pull the static Black
+#     TTF from the CDN. The versioned `v31` path is what Google Fonts
+#     hands out in @font-face URLs — update this script if it rotates.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -47,5 +52,9 @@ fetch \
 fetch \
   "https://github.com/googlefonts/roboto/raw/main/src/hinted/RobotoCondensed-Light.ttf" \
   fonts/RobotoCondensed-Light.ttf
+
+fetch \
+  "https://fonts.gstatic.com/s/robotocondensed/v31/ieVo2ZhZI2eCN5jzbjEETS9weq8-_d6T_POl0fRJeyUbpfBJ.ttf" \
+  fonts/RobotoCondensed-Black.ttf
 
 echo "done — run \`go run ./cmd/divoom push\` to install on the frame"

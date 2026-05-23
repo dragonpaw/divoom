@@ -1552,11 +1552,22 @@ func drawSceneGlyph(img *image.RGBA, scene Scene) {
 // right anchor; the three-family quote redesign uses this directly via
 // glyphAnchorFor to move the glyph out from under family chrome.
 // SceneGlyphColor is the canonical paint colour for every scene's
-// corner glyph. Defined as a named constant so per-case overrides
-// can't drift the family's visual weight — every glyph reads at the
-// same darkness against gruvbox-dark-hard.
+// corner glyph. **Rule:** every case in drawSceneGlyphAt MUST paint
+// in this colour (or via the local `c` parameter that's seeded from
+// it) — no per-scene overrides. The family's visual weight depends
+// on every glyph reading at the same darkness against
+// gruvbox-dark-hard; one bright outlier breaks the gestalt. If a
+// scene needs a different visual treatment, redesign the glyph
+// shape, not the colour.
+//
+// Declared as `var` because color.RGBA is a struct (Go forbids
+// struct consts), but treat it as a constant — never reassign it.
 var SceneGlyphColor = GruvBgDarker
 
+// drawSceneGlyphAt paints a scene's identifying corner glyph at
+// (cx, cy). Every case MUST paint in `c` (the SceneGlyphColor) so
+// the family of scene glyphs reads at consistent visual weight.
+// See the SceneGlyphColor docstring for the rationale.
 func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 	c := SceneGlyphColor
 
@@ -1721,8 +1732,9 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		// Sun cresting a horizon: a long thin horizon bar, a sun disc
 		// whose bottom half is carved out by a bg-hard rectangle so it
 		// reads as half-risen, and a halo of ray discs flicking up
-		// from the top arc. The sun is the scene's primary identity so
-		// it overrides the default dim-decor colour with a warm yellow.
+		// from the top arc. All painted in c (SceneGlyphColor) so the
+		// sun reads at the same darkness as every other corner glyph —
+		// the family-rule, not a per-scene override.
 		const (
 			horizonHalfW = 160 // half-length of the horizon bar (was 100)
 			horizonH     = 8   // horizon bar thickness (was 6)
@@ -1730,16 +1742,14 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 			sunCyOff     = -14 // sun centre relative to cy (sits just above horizon)
 			rayR         = 14  // ray disc radius (was 9)
 		)
-		sunC := GruvYellow
-		// Horizon bar — centred on cy, in the dim default so it reads
-		// as ground rather than as part of the sun itself.
+		// Horizon bar — centred on cy.
 		draw.Draw(img,
 			image.Rect(cx-horizonHalfW, cy-horizonH/2, cx+horizonHalfW, cy+horizonH/2),
 			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Sun disc in cYellow, then carve away everything at or below
-		// the horizon line so only the upper half stays visible.
+		// Sun disc, then carve away everything at or below the horizon
+		// line so only the upper half stays visible.
 		sunCy := cy + sunCyOff
-		fillCircle(img, cx, sunCy, sunR, sunC)
+		fillCircle(img, cx, sunCy, sunR, c)
 		draw.Draw(img,
 			image.Rect(cx-sunR-2, cy-horizonH/2, cx+sunR+2, cy+sunR+sunCyOff+2),
 			&image.Uniform{GruvBgHard}, image.Point{}, draw.Src)
@@ -1751,7 +1761,7 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 			{X: cx + 80, Y: sunCy - 130},
 			{X: cx + 150, Y: sunCy - 70},
 		} {
-			fillCircle(img, ray.X, ray.Y, rayR, sunC)
+			fillCircle(img, ray.X, ray.Y, rayR, c)
 		}
 
 	case SceneStarTrek:
@@ -1765,12 +1775,10 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		// Lotus flower (🪷) — the canonical zen-meditation mark. Replaces
 		// the earlier 🧘 figure, which read as a scrawny stick at
 		// silhouette. The lotus is chunky and symmetric, so it stays
-		// legible at GruvFg (cream, bright) instead of the family
-		// default dim SceneGlyphColor — design review asked for the zen
-		// glyph to carry more visual weight than the other corner
-		// glyphs since it is this scene's primary identity.
-		_ = c
-		drawLotus(img, cx, cy, GruvFg)
+		// legible at the family's dim SceneGlyphColor without needing
+		// a brightness override — exactly why we picked it over the
+		// meditator silhouette.
+		drawLotus(img, cx, cy, c)
 
 	case SceneNASA:
 		// Saturn-with-ring: a filled planet disc plus a thin elliptical
@@ -1841,7 +1849,11 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		// Git branch-diamond from Bootstrap Icons (see assets.go). Same
 		// mask-overpaint treatment as the Starfleet delta. Reads as
 		// "version control" without invoking GitHub's trademarked octocat.
-		drawGit(img, cx, cy, c)
+		// Painted ~90px lower than the canonical corner anchor because
+		// the github scene's column-label row sits at y=950 baseline;
+		// the default anchor at cy=CanvasH-240 (1040) would put the
+		// glyph's top edge at y=940 and clip the labels.
+		drawGit(img, cx, cy+90, c)
 
 	case SceneISS:
 		// No corner glyph for the ISS scene — the baked world map + dynamic

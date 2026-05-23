@@ -41,6 +41,7 @@ const (
 	fontMono       = 7  // Iosevka — numbers, ticker symbols, percentages
 	fontProse      = 9  // Roboto Condensed — labels, prose, condition words
 	fontProseLight = 11 // Roboto Condensed Light — secondary prose, fine print
+	fontProseBlack = 13 // Roboto Condensed Black — display headwords (RobotoCondensed-Black.ttf)
 )
 
 // On-device per-scene background paths. We adb-push one JPG per scene so
@@ -1513,7 +1514,7 @@ func dictionarySceneDevil(opts DictionarySceneOpts) *scene.Scene {
 			// y=515 — both rendered words sit on the same line.
 			ID: idSceneSub1, Type: "Text",
 			StartX: headwordX, StartY: 465, Width: CanvasW - 80 - headwordX, Height: 70,
-			Align: 0, FontSize: 58, FontID: fontProse,
+			Align: 0, FontSize: 52, FontID: fontProseBlack,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
 		{

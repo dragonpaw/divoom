@@ -28,6 +28,7 @@ var customFonts = []customFont{
 	{src: "Iosevka-Regular.ttf", devSlot: "/usr/share/divoom_app/divoom/21/8.bin", fontID: 7},
 	{src: "RobotoCondensed-Regular.ttf", devSlot: "/usr/share/divoom_app/divoom/21/10.bin", fontID: 9},
 	{src: "RobotoCondensed-Light.ttf", devSlot: "/usr/share/divoom_app/divoom/21/12.bin", fontID: 11},
+	{src: "RobotoCondensed-Black.ttf", devSlot: "/usr/share/divoom_app/divoom/21/14.bin", fontID: 13},
 }
 
 const (
