@@ -326,10 +326,24 @@ func SunriseBackground(format Format, now time.Time) ([]byte, error) {
 }
 
 // drawSunriseChrome paints the day-arc gradient, the three reference
-// ticks, and the sunrise/noon/sunset labels. Pulled into its own helper
-// so SunriseBackground stays a thin façade and the painter can be
-// unit-tested directly if needed.
+// ticks, the sunrise/noon/sunset labels, and a "daylight" caption
+// above the headline so the giant "14h 31m" number reads as
+// "today's daylight hours" rather than as an unlabelled big number.
+// Pulled into its own helper so SunriseBackground stays a thin façade
+// and the painter can be unit-tested directly if needed.
 func drawSunriseChrome(img *image.RGBA) {
+	// "daylight" legend baked above the headline (Roboto Condensed
+	// Light 24pt cFgDark) so the dynamic "<N>h <N>m" element below
+	// has explicit context.
+	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 24, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			drawLabelCentered(img, "daylight", face, CanvasW/2, 585, GruvFgDark)
+			face.Close()
+		}
+	}
 	const (
 		arcY      = 840
 		arcLeft   = 80
@@ -1719,15 +1733,10 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		fillCircle(img, rBarX+barW+flangeW, cy, tipR, c)
 
 	case SceneCatFacts:
-		// Cat silhouette: classic sitting-cat-from-behind. Round head
-		// with two pointy triangular ears, oval body widening toward
-		// the base, and a curled tail wrapping up the right side. The
-		// body+head outline is a single closed polygon rasterised by
-		// the same scanline fill as the Starfleet delta; the tail is
-		// a soft arc of overlapping discs along the right side so it
-		// reads as a separate appendage rather than part of the body
-		// blob.
-		drawCatSilhouette(img, cx, cy, 200, 200, c)
+		// Cat — Twemoji full-body cat (U+1F408) silhouette; replaces
+		// the hand-rasterised cat-from-behind which read as a fat
+		// pikachu blob rather than a recognisable cat.
+		drawCat(img, cx, cy, c)
 
 	case SceneDidYouKnow:
 		// Bold typographic "?" — sourced from the Twemoji ❔ (U+2754) PNG
@@ -1737,12 +1746,12 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		drawQuestion(img, cx, cy, c)
 
 	case SceneReddit:
-		// Twemoji alien-face mascot — stand-in for the trademarked
-		// reddit Snoo. Same dim SceneGlyphColor and mask-paint
-		// pattern used by the Starfleet delta / buddha / devil
-		// glyphs so every corner glyph in the rotation reads at the
-		// same darkness against gruvbox-dark-hard.
-		drawAlien(img, cx, cy, c)
+		// Twemoji thumbs-up (U+1F44D) — distinctive fist+thumb
+		// silhouette that reads as "upvote" without involving
+		// Reddit's trademarked Snoo. Replaces the earlier alien-face
+		// mask, which rendered as a featureless teardrop at
+		// silhouette-only.
+		drawThumbsup(img, cx, cy, c)
 
 	case SceneTIL:
 		// Lightbulb (idea / new knowledge) — sourced from the Heroicons
@@ -1908,48 +1917,18 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 			&image.Uniform{c}, image.Point{}, draw.Src)
 
 	case SceneTwain:
-		// Slanted quill pen: a long thin parallelogram running from
-		// lower-left to upper-right with a narrowing nib at the bottom
-		// end. Built as a single closed polygon with the lower vertices
-		// pinched together so the writing tip reads as a point.
-		const (
-			thick    = 26  // pen body thickness
-			nibInset = 14  // how far the nib end narrows in
-			diagX    = 130 // horizontal extent of the diagonal
-			diagY    = 150 // vertical extent of the diagonal
-		)
-		// Anchor: the nib at the lower-left, feather end at upper-right.
-		nibX, nibY := cx-diagX/2, cy+diagY/2
-		topX, topY := cx+diagX/2, cy-diagY/2
-		fillPolygon(img, []struct{ x, y int }{
-			{nibX, nibY},                       // nib point
-			{nibX + nibInset, nibY - thick/2},  // nib upper shoulder
-			{topX, topY - thick/2},             // feather end, top
-			{topX + thick/2, topY},             // feather end, side
-			{nibX + nibInset + thick/2, nibY},  // back to lower edge
-		}, c)
+		// Twemoji ship (U+1F6A2) — riverboat silhouette is the
+		// canonical Twain reference ("Mark Twain" is a steamboat
+		// sounding-call for two fathoms). Replaces the hand-
+		// rasterised pen-stroke slash, which read as a meaningless
+		// diagonal mark at glance distance.
+		drawSteamboat(img, cx, cy, c)
 
 	case SceneFortune:
-		// Fortune cookie: an asymmetric folded crescent. Two overlapping
-		// ellipses (one bigger, one carved away in bg-hard) leave a
-		// curved sliver that reads as the folded biscuit silhouette,
-		// with a tiny rectangular "paper" tab poking out of the cleft.
-		const (
-			outerRX = 130
-			outerRY = 90
-			carveDX = 50
-			carveDY = -10
-			carveRX = 120
-			carveRY = 80
-			paperW  = 70
-			paperH  = 8
-		)
-		fillEgg(img, cx, cy, outerRX, outerRY, outerRY, c)
-		fillEgg(img, cx+carveDX, cy+carveDY, carveRX, carveRY, carveRY, GruvBgHard)
-		// Paper slip sticking out of the cleft on the right.
-		draw.Draw(img,
-			image.Rect(cx+outerRX-paperW/2, cy-paperH/2, cx+outerRX+paperW/2, cy+paperH/2),
-			&image.Uniform{c}, image.Point{}, draw.Src)
+		// Twemoji fortune cookie (U+1F960) — replaces the hand-
+		// rasterised asymmetric-crescent which read as a generic
+		// blob rather than a cookie at silhouette.
+		drawFortuneCookie(img, cx, cy, c)
 
 	case SceneOnThisDay:
 		// Tear-off calendar page — "an entry in the historical record"
@@ -2100,6 +2079,93 @@ func drawDevil(img *image.RGBA, cx, cy int, c color.RGBA) {
 		devilMask = m
 	})
 	paintMask(img, devilMask, cx, cy, c)
+}
+
+// catMask is the decoded Twemoji full-body cat silhouette (U+1F408),
+// loaded once on first use. Replaces the hand-rasterised cat-from-
+// behind drawCatSilhouette which read as a round blob.
+var (
+	catOnce sync.Once
+	catMask image.Image
+)
+
+// drawCat paints the cat silhouette centred on (cx, cy) in colour c.
+func drawCat(img *image.RGBA, cx, cy int, c color.RGBA) {
+	catOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(catPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded cat: %w", err))
+		}
+		catMask = m
+	})
+	paintMask(img, catMask, cx, cy, c)
+}
+
+// fortuneCookieMask is the decoded Twemoji fortune-cookie silhouette
+// (U+1F960), loaded once on first use. Replaces the hand-rasterised
+// asymmetric-crescent that didn't read as a cookie at silhouette.
+var (
+	fortuneCookieOnce sync.Once
+	fortuneCookieMask image.Image
+)
+
+// drawFortuneCookie paints the fortune-cookie silhouette centred on
+// (cx, cy) in colour c.
+func drawFortuneCookie(img *image.RGBA, cx, cy int, c color.RGBA) {
+	fortuneCookieOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(fortuneCookiePNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded fortune cookie: %w", err))
+		}
+		fortuneCookieMask = m
+	})
+	paintMask(img, fortuneCookieMask, cx, cy, c)
+}
+
+// thumbsupMask is the decoded Twemoji thumbs-up silhouette
+// (U+1F44D), loaded once on first use. Replaces the alien-face mask
+// for the reddit scene — the alien rendered as a featureless teardrop
+// at silhouette; the thumbs-up has a distinctive fist+thumb outline
+// that reads as "upvote" without involving Reddit's trademarked Snoo.
+var (
+	thumbsupOnce sync.Once
+	thumbsupMask image.Image
+)
+
+// drawThumbsup paints the thumbs-up silhouette centred on (cx, cy)
+// in colour c.
+func drawThumbsup(img *image.RGBA, cx, cy int, c color.RGBA) {
+	thumbsupOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(thumbsupPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded thumbsup: %w", err))
+		}
+		thumbsupMask = m
+	})
+	paintMask(img, thumbsupMask, cx, cy, c)
+}
+
+// steamboatMask is the decoded Twemoji ship silhouette (U+1F6A2),
+// loaded once on first use. Used by SceneTwain — riverboat is the
+// canonical Twain reference ("Mark Twain" is a steamboat sounding-
+// call). Replaces the hand-rasterised pen-stroke slash that read
+// as a confusing slash mark.
+var (
+	steamboatOnce sync.Once
+	steamboatMask image.Image
+)
+
+// drawSteamboat paints the ship silhouette centred on (cx, cy) in
+// colour c.
+func drawSteamboat(img *image.RGBA, cx, cy int, c color.RGBA) {
+	steamboatOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(steamboatPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded steamboat: %w", err))
+		}
+		steamboatMask = m
+	})
+	paintMask(img, steamboatMask, cx, cy, c)
 }
 
 // alienMask is the decoded Twemoji alien-face silhouette PNG (U+1F47D),

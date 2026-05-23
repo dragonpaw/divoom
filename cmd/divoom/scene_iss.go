@@ -47,19 +47,25 @@ func issScene(widgets map[string]widget.Widget) *scene.Scene {
 			// on a parse failure so a bad widget value can't render a
 			// stray dot at the map's top-left corner.
 			{
+				// Iosevka mono (fontMono) rather than fontProse — Roboto
+				// Condensed Regular doesn't ship U+25CF BLACK CIRCLE in
+				// its glyph set, so the dot rendered as a tofu box on
+				// the device. Iosevka covers it.
 				ID: idSceneMain, Type: "Text",
 				StartX: -100, StartY: -100, Width: 44, Height: 44,
-				Align: 1, FontSize: 44, FontID: fontProse,
+				Align: 1, FontSize: 44, FontID: fontMono,
 				FontColor: cYellow, BgColor: cBgHard,
 				TextMessage: "●",
 			},
-			// Telemetry strip — Iosevka mono 28pt, sits where the old
-			// baked text was (left-aligned at x=80, y=510). Always
-			// cFgDark — subordinate to the live ● dot.
+			// Telemetry strip — Iosevka mono 28pt, centred horizontally
+			// in the slot above the hairline rule at y=535 baked by
+			// DrawISSChrome. Box top at y=490 / Height=32 → text
+			// baseline ≈y=518, well clear of the rule. Always cFgDark
+			// — subordinate to the live ● dot.
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 80, StartY: 510, Width: 640, Height: 30,
-				Align: 1, FontSize: 28, FontID: fontMono,
+				StartX: 80, StartY: 490, Width: 640, Height: 32,
+				Align: 2, FontSize: 28, FontID: fontMono,
 				FontColor: cFgDark, BgColor: cBgHard,
 			},
 			// Location line — "over <region>", prose, fg.

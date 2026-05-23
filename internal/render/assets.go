@@ -270,6 +270,18 @@ var lotusPNG []byte
 //go:embed assets/devil.png
 var devilPNG []byte
 
+//go:embed assets/cat.png
+var catPNG []byte
+
+//go:embed assets/fortune-cookie.png
+var fortuneCookiePNG []byte
+
+//go:embed assets/thumbsup.png
+var thumbsupPNG []byte
+
+//go:embed assets/steamboat.png
+var steamboatPNG []byte
+
 //go:embed assets/alien.png
 var alienPNG []byte
 
