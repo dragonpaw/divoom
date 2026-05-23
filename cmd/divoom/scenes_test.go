@@ -264,3 +264,154 @@ func TestSunriseTickX(t *testing.T) {
 		})
 	}
 }
+
+// TestSeasonAt pins the season name and accent colour for each month so
+// the dayofyear scene's season label can't silently flip a colour or
+// drop a season.
+func TestSeasonAt(t *testing.T) {
+	cases := []struct {
+		when      time.Time
+		wantName  string
+		wantColor string
+	}{
+		{time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC), "WINTER", cAqua},
+		{time.Date(2026, 2, 28, 12, 0, 0, 0, time.UTC), "WINTER", cAqua},
+		{time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC), "SPRING", cGreen},
+		{time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC), "SPRING", cGreen},
+		{time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), "SUMMER", cYellow},
+		{time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC), "SUMMER", cYellow},
+		{time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC), "AUTUMN", cOrange},
+		{time.Date(2026, 11, 30, 12, 0, 0, 0, time.UTC), "AUTUMN", cOrange},
+		{time.Date(2026, 12, 1, 12, 0, 0, 0, time.UTC), "WINTER", cAqua},
+		{time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC), "WINTER", cAqua},
+	}
+	for _, tc := range cases {
+		gotName, gotColor := seasonAt(tc.when)
+		if gotName != tc.wantName || gotColor != tc.wantColor {
+			t.Errorf("seasonAt(%s) = (%q, %q), want (%q, %q)",
+				tc.when.Format("2006-01-02"), gotName, gotColor, tc.wantName, tc.wantColor)
+		}
+	}
+}
+
+// TestParseSpecialDates exercises happy-path parsing, whitespace
+// tolerance, malformed-entry skipping, and the empty-input case.
+func TestParseSpecialDates(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		if got := parseSpecialDates(""); len(got) != 0 {
+			t.Errorf("parseSpecialDates(empty) = %v, want empty map", got)
+		}
+		if got := parseSpecialDates("   "); len(got) != 0 {
+			t.Errorf("parseSpecialDates(whitespace) = %v, want empty map", got)
+		}
+	})
+	t.Run("happy", func(t *testing.T) {
+		got := parseSpecialDates("01-13:A,03-22:B,12-25:C")
+		want := map[int]rune{113: 'A', 322: 'B', 1225: 'C'}
+		if len(got) != len(want) {
+			t.Fatalf("parseSpecialDates: got %v, want %v", got, want)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("parseSpecialDates: key %d = %q, want %q", k, got[k], v)
+			}
+		}
+	})
+	t.Run("whitespace tolerance", func(t *testing.T) {
+		got := parseSpecialDates("  01-13 : A , 03-22 :B,12-25:C  ")
+		if got[113] != 'A' || got[322] != 'B' || got[1225] != 'C' {
+			t.Errorf("parseSpecialDates whitespace: got %v", got)
+		}
+	})
+	t.Run("malformed dropped", func(t *testing.T) {
+		// Missing letter, missing colon, bad month/day, multi-rune letter.
+		got := parseSpecialDates("01-13:A,bad,02-30,99-01:X,03-15:AB,04-04:D")
+		if got[113] != 'A' || got[404] != 'D' {
+			t.Errorf("parseSpecialDates malformed: missing valid entries, got %v", got)
+		}
+		// Bad entries should not appear; 99-01 is invalid month, 03-15:AB is multi-rune.
+		if _, ok := got[315]; ok {
+			t.Errorf("parseSpecialDates: multi-rune entry should not be kept, got %v", got)
+		}
+		if _, ok := got[9901]; ok {
+			t.Errorf("parseSpecialDates: bad month should not be kept, got %v", got)
+		}
+	})
+}
+
+// TestISSMapXY pins the lat/lon → baked-map coordinate projection so a
+// drift in either axis (e.g. inverted Y, flipped longitude) fails loudly
+// instead of placing the dot in the wrong ocean.
+func TestISSMapXY(t *testing.T) {
+	// Map rect from render.ISSMap{X0,Y0,W,H}: x ∈ [40,760], y ∈ [560,920].
+	cases := []struct {
+		lat, lon       float64
+		wantX, wantY   int
+	}{
+		{0, 0, 400, 740},       // equator + prime meridian → centre
+		{90, 0, 400, 560},      // north pole → top centre
+		{-90, 0, 400, 920},     // south pole → bottom centre
+		{0, -180, 40, 740},     // dateline west → left edge mid-height
+		{0, 180, 760, 740},     // dateline east → right edge mid-height
+	}
+	for _, tc := range cases {
+		gotX := issMapX(tc.lon)
+		gotY := issMapY(tc.lat)
+		if gotX != tc.wantX || gotY != tc.wantY {
+			t.Errorf("lat=%g lon=%g → (%d,%d); want (%d,%d)",
+				tc.lat, tc.lon, gotX, gotY, tc.wantX, tc.wantY)
+		}
+	}
+}
+
+// TestFormatISSCoordsNSEW pins the N/S/E/W reformat used in the
+// coords-and-pass row so negative-degree readings can never silently
+// render as a positive northern/eastern reading.
+func TestFormatISSCoordsNSEW(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"22.5°, 45.3°", "22.5° N   45.3° E"},
+		{"-22.5°, -45.3°", "22.5° S   45.3° W"},
+		{"0.0°, 0.0°", "0.0° N   0.0° E"},
+		{"-1.0°, 179.9°", "1.0° S   179.9° E"},
+	}
+	for _, tc := range cases {
+		if got := formatISSCoordsNSEW(tc.in); got != tc.want {
+			t.Errorf("formatISSCoordsNSEW(%q) = %q; want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestParseISSCoords covers the happy path and a few malformed shapes
+// the upstream API could return; ok=false is the only signal the scene
+// uses to hide the dot.
+func TestParseISSCoords(t *testing.T) {
+	t.Run("happy", func(t *testing.T) {
+		lat, lon, ok := parseISSCoords("-22.5°, -45.3°")
+		if !ok || lat != -22.5 || lon != -45.3 {
+			t.Fatalf("parse failed: lat=%g lon=%g ok=%v", lat, lon, ok)
+		}
+	})
+	t.Run("no-degree-sign", func(t *testing.T) {
+		lat, lon, ok := parseISSCoords("12.0, 34.0")
+		if !ok || lat != 12.0 || lon != 34.0 {
+			t.Fatalf("parse failed: lat=%g lon=%g ok=%v", lat, lon, ok)
+		}
+	})
+	t.Run("missing-comma", func(t *testing.T) {
+		if _, _, ok := parseISSCoords("12.0 34.0"); ok {
+			t.Fatal("expected ok=false")
+		}
+	})
+	t.Run("empty", func(t *testing.T) {
+		if _, _, ok := parseISSCoords(""); ok {
+			t.Fatal("expected ok=false")
+		}
+	})
+	t.Run("non-numeric", func(t *testing.T) {
+		if _, _, ok := parseISSCoords("north, east"); ok {
+			t.Fatal("expected ok=false")
+		}
+	})
+}

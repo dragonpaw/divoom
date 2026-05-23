@@ -202,7 +202,9 @@ func pushSceneBackgrounds(ctx context.Context) error {
 	}{
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneMarkets, render.FormatJPEG, now) }, bgMarkets},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneHN, render.FormatJPEG, now) }, bgHN},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneDayOfYear, render.FormatJPEG, now) }, bgDayOfYear},
+		{func() ([]byte, error) {
+			return render.DayOfYearBackground(now, parseSpecialDates(os.Getenv("DIVOOM_SPECIAL_DATES")), render.FormatJPEG)
+		}, bgDayOfYear},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now) }, bgEaster},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneCatFacts, render.FormatJPEG, now) }, bgCatFacts},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneDidYouKnow, render.FormatJPEG, now) }, bgDidYouKnow},

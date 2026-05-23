@@ -49,3 +49,55 @@ func TestMoonIllumFractionForIndex(t *testing.T) {
 	}
 }
 
+
+// TestDayOfYearGridCellState exercises the dayofyear calendar grid's
+// per-cell state classifier. Past/today/future/phantom/special and
+// special+today combinations are covered so the priority ordering on
+// drawDayOfYearGrid can't silently drift.
+func TestDayOfYearGridCellState(t *testing.T) {
+	// Anchor today as 2026-05-22 (the working session's date).
+	today := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	special := map[int]rune{
+		522:  'T', // today is a special date
+		1225: 'X', // future special
+		113:  'A', // past special
+	}
+	cases := []struct {
+		name           string
+		month, day     int
+		specialDates   map[int]rune
+		want           dayOfYearCellState
+	}{
+		{"past day", 1, 15, special, dayOfYearPast},
+		{"today (no special)", 5, 22, nil, dayOfYearToday},
+		{"today (with special)", 5, 22, special, dayOfYearSpecial},
+		{"future day", 8, 1, special, dayOfYearFuture},
+		{"phantom Feb 30", 2, 30, special, dayOfYearPhantom},
+		{"phantom Apr 31", 4, 31, special, dayOfYearPhantom},
+		{"past special", 1, 13, special, dayOfYearPast}, // 113 not in specialDates above; rebuild
+		{"future special", 12, 25, special, dayOfYearSpecial},
+	}
+	// Fix up the "past special" case — 113 IS in special above.
+	cases[6].want = dayOfYearSpecial
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := dayOfYearCellStateFor(tc.month, tc.day, today, tc.specialDates)
+			if got != tc.want {
+				t.Errorf("dayOfYearCellStateFor(%d/%d) = %d, want %d", tc.month, tc.day, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDayOfYearBackgroundRenders smoke-tests the dayofyear bg builder
+// end-to-end so a refactor that breaks the JPEG path is caught.
+func TestDayOfYearBackgroundRenders(t *testing.T) {
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	data, err := DayOfYearBackground(now, map[int]rune{522: 'T', 1225: 'X'}, FormatJPEG)
+	if err != nil {
+		t.Fatalf("DayOfYearBackground: %v", err)
+	}
+	if len(data) < 5*1024 {
+		t.Errorf("DayOfYearBackground: JPEG too small (%d bytes)", len(data))
+	}
+}

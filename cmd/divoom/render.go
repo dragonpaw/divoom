@@ -48,7 +48,7 @@ func runRender(args []string) error {
 			return render.SceneBackground(render.SceneHN, render.FormatJPEG, now)
 		}},
 		{name: "scene-dayofyear", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneDayOfYear, render.FormatJPEG, now)
+			return render.DayOfYearBackground(now, parseSpecialDates(os.Getenv("DIVOOM_SPECIAL_DATES")), render.FormatJPEG)
 		}},
 		{name: "scene-easter", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now)

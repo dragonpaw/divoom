@@ -235,6 +235,24 @@ func isoWeek(now time.Time) int {
 	return w
 }
 
+// seasonAt returns the all-caps season name and its gruvbox accent for
+// the month of `now`. WINTER (Dec/Jan/Feb) is cold cAqua; SPRING
+// (Mar/Apr/May) is growth cGreen; SUMMER (Jun/Jul/Aug) is sun cYellow;
+// AUTUMN (Sep/Oct/Nov) is foliage cOrange. Used by the dayofyear
+// scene's OnActivate to colour-code the season label under the grid.
+func seasonAt(now time.Time) (name, color string) {
+	switch now.Month() {
+	case time.December, time.January, time.February:
+		return "WINTER", cAqua
+	case time.March, time.April, time.May:
+		return "SPRING", cGreen
+	case time.June, time.July, time.August:
+		return "SUMMER", cYellow
+	default: // Sep, Oct, Nov
+		return "AUTUMN", cOrange
+	}
+}
+
 // timeColor returns the AM/PM accent for the always-on clock — cAqua
 // mornings, cOrange afternoons/evenings — so the clock reads warm or
 // cool at a glance.
@@ -1331,4 +1349,108 @@ func moonNextFullMoon(s string) (text, color string) {
 		return parts[3], ""
 	}
 	return "", ""
+}
+
+// --- ISS formatters and coordinate math ---
+
+// issMapX maps a longitude (-180..+180) to a baked-map x-coordinate
+// (render.ISSMapX0..render.ISSMapX0+render.ISSMapW). Out-of-range
+// inputs are wrapped/clamped to the map's edges so a bad parse can't
+// place the dot outside the map rect.
+func issMapX(lon float64) int {
+	if lon < -180 {
+		lon = -180
+	} else if lon > 180 {
+		lon = 180
+	}
+	return render.ISSMapX0 + int((lon+180)*float64(render.ISSMapW)/360.0)
+}
+
+// issMapY maps a latitude (+90..-90) to a baked-map y-coordinate
+// (render.ISSMapY0..render.ISSMapY0+render.ISSMapH). +90 = top,
+// -90 = bottom (the equirectangular convention).
+func issMapY(lat float64) int {
+	if lat > 90 {
+		lat = 90
+	} else if lat < -90 {
+		lat = -90
+	}
+	return render.ISSMapY0 + int((90-lat)*float64(render.ISSMapH)/180.0)
+}
+
+// parseISSCoords parses the ISS widget's pipe[0] segment ("-22.5°,
+// -45.3°") into (lat, lon, ok). Tolerates leading/trailing whitespace
+// and the degree-sign suffix; returns ok=false on any parse failure
+// so the caller can hide the dot rather than render it at (0,0).
+func parseISSCoords(s string) (lat, lon float64, ok bool) {
+	parts := strings.SplitN(strings.TrimSpace(s), ",", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	clean := func(p string) string {
+		return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(p), "°"))
+	}
+	a, err := strconv.ParseFloat(clean(parts[0]), 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	b, err := strconv.ParseFloat(clean(parts[1]), 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return a, b, true
+}
+
+// formatISSCoordsNSEW reformats the widget's "-22.5°, -45.3°" into a
+// human-friendly "22.5° S   45.3° W" form. Negative lat → S, positive
+// → N; negative lon → W, positive → E. On parse failure the original
+// string is returned unchanged so the body element still has something
+// to show.
+func formatISSCoordsNSEW(s string) string {
+	lat, lon, ok := parseISSCoords(s)
+	if !ok {
+		return s
+	}
+	latHem := "N"
+	if lat < 0 {
+		latHem = "S"
+		lat = -lat
+	}
+	lonHem := "E"
+	if lon < 0 {
+		lonHem = "W"
+		lon = -lon
+	}
+	return fmt.Sprintf("%.1f° %s   %.1f° %s", lat, latHem, lon, lonHem)
+}
+
+// issCoordsAndPass is the scene mount formatter for the ISS scene's
+// coords-and-pass row. It joins the reformatted coordinates from
+// pipe[0] with the next-pass string from pipe[1], rewriting the
+// widget's "next pass in 1h 04m" prefix to the more compact
+// "next pass · 1h 04m" form the scene uses. Missing pass text is
+// dropped silently so a flaky upstream just shows the coordinates.
+func issCoordsAndPass(raw string) (text, color string) {
+	coords := formatISSCoordsNSEW(pipeAtRaw(raw, 0))
+	pass := pipeAtRaw(raw, 1)
+	pass = strings.TrimPrefix(pass, "next pass in ")
+	if pass != "" {
+		pass = "next pass · " + pass
+	}
+	if pass == "" {
+		return coords, ""
+	}
+	return coords + "       " + pass, ""
+}
+
+// pipeAtRaw returns the i-th pipe-separated segment of raw, or "" if
+// the segment is missing. Plain helper for formatters that compose
+// from multiple segments without going through the pipeAt() mount
+// indirection.
+func pipeAtRaw(raw string, i int) string {
+	parts := strings.Split(raw, "|")
+	if i < 0 || i >= len(parts) {
+		return ""
+	}
+	return parts[i]
 }

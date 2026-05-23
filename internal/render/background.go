@@ -118,7 +118,10 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 	img := buildHeroImage(now)
 	switch scene {
 	case SceneDayOfYear:
-		drawDayOfYearProgress(img, now)
+		// Preview / fallback path — no special dates available without
+		// env access, so the grid renders with past/today/future cells
+		// only. Production callers use DayOfYearBackground.
+		drawDayOfYearGrid(img, now, nil)
 	case SceneEaster:
 		drawEasterEgg(img)
 	case SceneWeather:
@@ -136,6 +139,11 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// the bottom-right corner stays as the wordmark's mirror.
 		drawHNChrome(img)
 		drawSceneGlyph(img, scene)
+	case SceneISS:
+		// ISS scene chrome: telemetry strip, hairline, equirectangular
+		// world-map outline, equator + prime-meridian hairlines. The
+		// corner glyph is intentionally suppressed (see drawSceneGlyph).
+		DrawISSChrome(img)
 	case SceneCatFacts:
 		// Field-guide entry chrome: italic-ish "Felis catus" binomial,
 		// short underline, taxonomic classification, pilcrow drop-marker
@@ -594,6 +602,113 @@ func DrawCatfactsChrome(img *image.RGBA, observationNum int, institution string)
 	}
 }
 
+// ISS map geometry — the chrome and the scene's dot-positioning math
+// share these constants so they can never drift apart. Keep the world
+// map rect at 720x360 to match the embedded mask resolution.
+const (
+	ISSMapX0 = 40
+	ISSMapY0 = 560
+	ISSMapW  = 720
+	ISSMapH  = 360
+	ISSMapX1 = ISSMapX0 + ISSMapW
+	ISSMapY1 = ISSMapY0 + ISSMapH
+)
+
+// worldMapMask is the decoded equirectangular continents-mask PNG;
+// loaded once on first use. Same alpha-threshold treatment as the
+// starfleet delta.
+var (
+	worldMapOnce sync.Once
+	worldMapMask image.Image
+)
+
+// DrawISSChrome bakes the ISS scene's static chrome onto img:
+//
+//   - a one-line telemetry strip ("●  ISS  ·  408km altitude  ·  7.66km/s")
+//     under the always-on top zone,
+//   - a hairline below the strip,
+//   - the equirectangular world-map outline filling the body area
+//     (loaded from the embedded mask and painted in GruvFgDark),
+//   - hairlines marking the equator (horizontal mid-line of the map)
+//     and the prime meridian (vertical mid-line of the map).
+//
+// The dynamic ISS sub-satellite dot is NOT baked here — the scene
+// installs it as a Text element whose StartX/StartY are recomputed at
+// every activation from the current lat/lon.
+func DrawISSChrome(img *image.RGBA) {
+	const (
+		left         = 80
+		right        = CanvasW - 80
+		telemetryY   = 510 // baseline for the telemetry strip
+		hairlineY    = 535
+	)
+	if f, err := LoadFont("Iosevka-Regular.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 26, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			drawLabelLeft(img, "●  ISS  ·  408km altitude  ·  7.66km/s",
+				face, left, telemetryY, GruvFgDark)
+			face.Close()
+		} else {
+			slog.Warn("iss chrome: telemetry face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("iss chrome: telemetry font load failed", "err", err)
+	}
+	draw.Draw(img, image.Rect(left, hairlineY, right, hairlineY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+
+	// World map outline — every above-threshold mask pixel paints a
+	// GruvFgDark pixel at the same offset inside the map rect.
+	worldMapOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(worldMapEquirectPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded world map: %w", err))
+		}
+		worldMapMask = m
+	})
+	paintMaskAt(img, worldMapMask, ISSMapX0, ISSMapY0, GruvFgDark)
+
+	// Equator hairline across the map (latitude 0).
+	equatorY := ISSMapY0 + ISSMapH/2
+	draw.Draw(img,
+		image.Rect(ISSMapX0, equatorY, ISSMapX1, equatorY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	// Prime-meridian hairline down the map (longitude 0).
+	meridianX := ISSMapX0 + ISSMapW/2
+	draw.Draw(img,
+		image.Rect(meridianX, ISSMapY0, meridianX+1, ISSMapY1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+}
+
+// paintMaskAt is paintMask's top-left-anchored cousin: every above-
+// threshold pixel of mask paints a pixel at (originX+px, originY+py).
+// Used for the world-map outline where centring math would just hide
+// the explicit rect the chrome already declares.
+func paintMaskAt(img *image.RGBA, mask image.Image, originX, originY int, c color.RGBA) {
+	mb := mask.Bounds()
+	mw, mh := mb.Dx(), mb.Dy()
+	bounds := img.Bounds()
+	for py := 0; py < mh; py++ {
+		dy := originY + py
+		if dy < bounds.Min.Y || dy >= bounds.Max.Y {
+			continue
+		}
+		for px := 0; px < mw; px++ {
+			_, _, _, a := mask.At(mb.Min.X+px, mb.Min.Y+py).RGBA()
+			if a>>8 <= starfleetDeltaAlphaThreshold {
+				continue
+			}
+			dx := originX + px
+			if dx < bounds.Min.X || dx >= bounds.Max.X {
+				continue
+			}
+			img.SetRGBA(dx, dy, c)
+		}
+	}
+}
+
 // drawFromSourceChrome bakes the in-universe header strip: Header on the
 // left, Subheader on the right, both in fontProseLight 28pt cFgDark with
 // a thin rule below them and a matching rule above the attribution slot
@@ -867,33 +982,171 @@ func fillEgg(img *image.RGBA, cx, cy, rx, ryTop, ryBot int, c color.RGBA) {
 	}
 }
 
-// drawDayOfYearProgress paints a thick year-progress bar across the
-// body area of the dayofyear scene background — orange fill on a
-// bg-darker track, full width, 60 px tall. Updates only when the bg
-// is re-rendered (daemon startup), but day-to-day fraction differences
-// are <0.3 % so the visual stays fresh enough between restarts.
-func drawDayOfYearProgress(img *image.RGBA, now time.Time) {
+// DayOfYearBackground builds the dayofyear scene bg with the calendar
+// grid baked in (12 rows × 31 cols of day cells, plus month-letter
+// labels down the left edge). specialDates maps month*100+day → a
+// single-rune mark that paints the cell in red with the letter
+// centred; nil / empty just produces the past/today/future grid.
+func DayOfYearBackground(now time.Time, specialDates map[int]rune, format Format) ([]byte, error) {
+	img := buildHeroImage(now)
+	drawDayOfYearGrid(img, now, specialDates)
+	return encodeImage(img, format)
+}
+
+// dayOfYearCellState describes how one (month, day) cell paints in the
+// dayofyear grid. The five states form the priority order documented on
+// drawDayOfYearGrid; cellColorFor returns one of these for a given date
+// + special-mark presence + today.
+type dayOfYearCellState int
+
+const (
+	dayOfYearPhantom dayOfYearCellState = iota // dayOfMonth > days in month
+	dayOfYearSpecial                           // user-defined special date
+	dayOfYearToday                             // today, not special
+	dayOfYearPast                              // past day this year
+	dayOfYearFuture                            // future day this year
+)
+
+// dayOfYearCellState returns the visual state for the cell at (month,
+// dayOfMonth) given today's date and the set of special dates. Priority
+// order: phantom > special > today > past > future. When today IS a
+// special date the cell is still classified as special — the painter
+// adds the cYellow border on top of the cRed fill separately.
+func dayOfYearCellStateFor(month, dayOfMonth int, today time.Time, specialDates map[int]rune) dayOfYearCellState {
+	if dayOfMonth > daysInMonth(today.Year(), month) {
+		return dayOfYearPhantom
+	}
+	if _, ok := specialDates[month*100+dayOfMonth]; ok {
+		return dayOfYearSpecial
+	}
+	if month == int(today.Month()) && dayOfMonth == today.Day() {
+		return dayOfYearToday
+	}
+	tMonth := int(today.Month())
+	if month < tMonth || (month == tMonth && dayOfMonth < today.Day()) {
+		return dayOfYearPast
+	}
+	return dayOfYearFuture
+}
+
+// daysInMonth returns the number of days in (year, month).
+func daysInMonth(year, month int) int {
+	// time.Date normalises so day 0 of (month+1) is the last day of month.
+	return time.Date(year, time.Month(month+1), 0, 0, 0, 0, 0, time.UTC).Day()
+}
+
+// drawDayOfYearGrid bakes the 12×31 calendar grid into the dayofyear
+// scene bg. Cells are 18×18 with a 2px gap (stride 20); the grid origin
+// is (130, 750), occupying x=130..750 / y=750..990. Month labels go in
+// the left margin at x=60.
+//
+// Cell painting priority (highest first):
+//   1. phantom (dayOfMonth > days in month): cBgHard — invisible.
+//   2. special date: cRed fill + letter centred in cFg.
+//   3. today: 2px cYellow border around the cell, fill underneath
+//      stays whatever past/future colour applies.
+//   4. past: cOrange fill.
+//   5. future: cBgDarker fill.
+// Today + special: cRed fill + letter + cYellow border (both signals).
+func drawDayOfYearGrid(img *image.RGBA, now time.Time, specialDates map[int]rune) {
 	const (
-		barTop    = 755
-		barBottom = 815
-		inset     = 40
+		gridX = 130
+		gridY = 750
+		cell  = 18
+		gap   = 2
+		// Stride: cell + gap = 20.
 	)
-	yearDays := 365
-	if isLeapYear(now.Year()) {
-		yearDays = 366
+	stride := cell + gap
+	today := now
+
+	// Month labels — fontMono 16pt cFgDark, vertically centred on each row.
+	monthFace, _ := loadFace("Iosevka-Regular.ttf", 16)
+	if monthFace != nil {
+		defer monthFace.Close()
 	}
-	frac := float64(now.YearDay()-1) / float64(yearDays)
-	// Track
-	draw.Draw(img,
-		image.Rect(inset, barTop, CanvasW-inset, barBottom),
-		&image.Uniform{GruvBgDarker}, image.Point{}, draw.Src)
-	// Fill
-	fillW := int(frac * float64(CanvasW-2*inset))
-	if fillW > 0 {
-		draw.Draw(img,
-			image.Rect(inset, barTop, inset+fillW, barBottom),
-			&image.Uniform{GruvOrange}, image.Point{}, draw.Src)
+	letterFace, _ := loadFace("Iosevka-Regular.ttf", 14)
+	if letterFace != nil {
+		defer letterFace.Close()
 	}
+
+	monthAbbrev := []string{
+		"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+		"JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+	}
+
+	for monthIdx := 0; monthIdx < 12; monthIdx++ {
+		month := monthIdx + 1
+		cellY := gridY + monthIdx*stride
+		if monthFace != nil {
+			// Baseline ~4 px down from cell top so the cap-line sits
+			// roughly centred against the 18px cell.
+			drawLabelLeft(img, monthAbbrev[monthIdx], monthFace, 60, cellY+cell-4, GruvFgDark)
+		}
+		for d := 1; d <= 31; d++ {
+			cellX := gridX + (d-1)*stride
+			rect := image.Rect(cellX, cellY, cellX+cell, cellY+cell)
+			state := dayOfYearCellStateFor(month, d, today, specialDates)
+			switch state {
+			case dayOfYearPhantom:
+				draw.Draw(img, rect, &image.Uniform{GruvBgHard}, image.Point{}, draw.Src)
+			case dayOfYearSpecial:
+				draw.Draw(img, rect, &image.Uniform{GruvRed}, image.Point{}, draw.Src)
+				if letterFace != nil {
+					letter := string(specialDates[month*100+d])
+					drawLabelCentered(img, letter, letterFace, cellX+cell/2, cellY+cell-4, GruvFg)
+				}
+				if month == int(today.Month()) && d == today.Day() {
+					drawCellBorder(img, rect, 2, GruvYellow)
+				}
+			case dayOfYearToday:
+				// Paint the underlying past/future fill, then border.
+				underlying := GruvBgDarker
+				tMonth := int(today.Month())
+				if month < tMonth || (month == tMonth && d < today.Day()) {
+					underlying = GruvOrange
+				}
+				draw.Draw(img, rect, &image.Uniform{underlying}, image.Point{}, draw.Src)
+				drawCellBorder(img, rect, 2, GruvYellow)
+			case dayOfYearPast:
+				draw.Draw(img, rect, &image.Uniform{GruvOrange}, image.Point{}, draw.Src)
+			case dayOfYearFuture:
+				draw.Draw(img, rect, &image.Uniform{GruvBgDarker}, image.Point{}, draw.Src)
+			}
+		}
+	}
+}
+
+// loadFace loads a TTF from fonts/ at the given point size, returning
+// nil on failure (callers skip the label rather than fail the whole
+// render — same defensive pattern the chrome painters use).
+func loadFace(filename string, size float64) (font.Face, error) {
+	f, err := LoadFont(filename)
+	if err != nil {
+		slog.Warn("dayofyear grid: font load failed", "file", filename, "err", err)
+		return nil, err
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size: size, DPI: 72, Hinting: font.HintingFull,
+	})
+	if err != nil {
+		slog.Warn("dayofyear grid: face init failed", "file", filename, "err", err)
+		return nil, err
+	}
+	return face, nil
+}
+
+// drawCellBorder paints a `thick`-pixel border in colour c around rect.
+// Used for the today-cell highlight.
+func drawCellBorder(img *image.RGBA, rect image.Rectangle, thick int, c color.RGBA) {
+	u := &image.Uniform{c}
+	// Top
+	draw.Draw(img, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+thick), u, image.Point{}, draw.Src)
+	// Bottom
+	draw.Draw(img, image.Rect(rect.Min.X, rect.Max.Y-thick, rect.Max.X, rect.Max.Y), u, image.Point{}, draw.Src)
+	// Left
+	draw.Draw(img, image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+thick, rect.Max.Y), u, image.Point{}, draw.Src)
+	// Right
+	draw.Draw(img, image.Rect(rect.Max.X-thick, rect.Min.Y, rect.Max.X, rect.Max.Y), u, image.Point{}, draw.Src)
 }
 
 func encodeImage(img *image.RGBA, format Format) ([]byte, error) {
@@ -1211,40 +1464,9 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		drawGit(img, cx, cy, c)
 
 	case SceneISS:
-		// Stylised satellite silhouette: small central body with two long
-		// thin solar panels flanking it horizontally, plus a short antenna
-		// rising from the top. Rectangles only — no mask asset needed.
-		const (
-			bodyHalfW   = 30
-			bodyHalfH   = 30
-			panelW      = 120
-			panelH      = 30
-			panelGap    = 6 // gap between body edge and inboard panel edge
-			antennaW    = 4
-			antennaH    = 40
-			antennaTipR = 6
-		)
-		// Central body.
-		draw.Draw(img,
-			image.Rect(cx-bodyHalfW, cy-bodyHalfH, cx+bodyHalfW, cy+bodyHalfH),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Left solar panel.
-		leftRight := cx - bodyHalfW - panelGap
-		draw.Draw(img,
-			image.Rect(leftRight-panelW, cy-panelH/2, leftRight, cy+panelH/2),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Right solar panel.
-		rightLeft := cx + bodyHalfW + panelGap
-		draw.Draw(img,
-			image.Rect(rightLeft, cy-panelH/2, rightLeft+panelW, cy+panelH/2),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		// Antenna stem rising from the top of the body, capped with a
-		// small disc so it reads as a sensor rather than a stray line.
-		antennaTop := cy - bodyHalfH - antennaH
-		draw.Draw(img,
-			image.Rect(cx-antennaW/2, antennaTop, cx+antennaW/2, cy-bodyHalfH),
-			&image.Uniform{c}, image.Point{}, draw.Src)
-		fillCircle(img, cx, antennaTop, antennaTipR, c)
+		// No corner glyph for the ISS scene — the baked world map + dynamic
+		// dot in the body IS the visualisation, and a corner satellite
+		// would compete with it. Handled fully by DrawISSChrome.
 
 	case SceneStoics:
 		// Greek column: square capital + plinth at the top, fluted shaft
