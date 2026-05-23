@@ -24,6 +24,14 @@ import (
 	"image/color"
 	"image/draw"
 	"image/jpeg"
+
+	// Side-effect imports register decoders with image.Decode so the
+	// loadCachedAPODImage path can handle every APOD format on its
+	// own. JPEG is registered via the image/jpeg import above; PNG
+	// and GIF need explicit blank imports — the 1995-era APOD entries
+	// are almost all GIF.
+	_ "image/gif"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
