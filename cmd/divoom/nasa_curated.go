@@ -47,7 +47,6 @@ var nasaCuratedDates = []string{
 	"2012-10-14", // Hubble Extreme Deep Field (XDF)
 	"2015-01-07", // Hubble 25th: Pillars of Creation revisited
 	"2015-04-23", // Hubble 25th anniversary — Westerlund 2
-	"2020-04-24", // Hubble 30th anniversary — Cosmic Reef
 	"2007-02-18", // Pillars of Creation (classic Hubble)
 	"2020-12-06", // Pillars of star creation (Hubble)
 	"2019-06-23", // Carina Nebula 48-frame Hubble panorama
@@ -73,7 +72,6 @@ var nasaCuratedDates = []string{
 	"2024-05-20", // Aurora Dome Sky (May 2024 storm)
 	"2024-05-22", // Green aurora over Sweden
 	"2023-04-19", // Auroral storm over Lapland
-	"2024-10-13", // Aurora timelapse Italian Alps (X-class flare)
 	"2024-10-16", // Colorful aurora over New Zealand
 	"2023-07-30", // Spiral aurora Icelandic Divide
 	"2015-07-04", // Aurora Australis from South Pole Station
