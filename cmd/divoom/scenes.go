@@ -1471,11 +1471,12 @@ func dictionarySceneJargon(opts DictionarySceneOpts) *scene.Scene {
 	elements := []frame.DispElement{
 		{
 			// Headword in the same Iosevka 28pt as the baked "$ jargon"
-			// prompt to its left, on the same baseline (y=515) — the
-			// row reads as one shell-prompt line. StartY=495 so the
-			// device's top-anchored text sits with baseline ≈y=515.
+			// prompt to its left. Box top-edge at y=487, Height=32 —
+			// shrunk so the device's vertical-centring of the rendered
+			// text places its baseline at y=515, matching the baked
+			// prompt's baseline (drawTerminalChrome → promptBase=515).
 			ID: idSceneSub1, Type: "Text",
-			StartX: headwordX, StartY: 495, Width: CanvasW - 80 - headwordX, Height: 36,
+			StartX: headwordX, StartY: 487, Width: CanvasW - 80 - headwordX, Height: 32,
 			Align: 0, FontSize: 28, FontID: fontMono,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
@@ -1514,12 +1515,12 @@ func dictionarySceneDevil(opts DictionarySceneOpts) *scene.Scene {
 	elements := []frame.DispElement{
 		{
 			// Headword in the same Iosevka 28pt as the baked "$ define"
-			// prompt to its left, on the same baseline (y=515) — the
-			// header reads as one shell-prompt line (`$ define CYNIC, n.`).
-			// StartY=495 so the device's top-anchored text sits with
-			// baseline ≈y=515.
+			// prompt to its left. Box top-edge at y=487, Height=32 —
+			// shrunk so the device's vertical-centring of the rendered
+			// text places its baseline at y=515, matching the baked
+			// prompt's baseline (drawTerminalChrome → promptBase=515).
 			ID: idSceneSub1, Type: "Text",
-			StartX: headwordX, StartY: 495, Width: CanvasW - 80 - headwordX, Height: 36,
+			StartX: headwordX, StartY: 487, Width: CanvasW - 80 - headwordX, Height: 32,
 			Align: 0, FontSize: 28, FontID: fontMono,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
