@@ -18,7 +18,7 @@ import (
 func didyouknowScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "didyouknow",
-		Weight: WeightInformational,
+		Weight: WeightInteresting,
 		BgPath: bgDidYouKnow,
 		Elements: []frame.DispElement{
 			{
