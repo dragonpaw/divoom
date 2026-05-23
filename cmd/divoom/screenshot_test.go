@@ -92,11 +92,15 @@ func TestRefreshScreenshots(t *testing.T) {
 		{"weather-cloudy", "63°F|cloudy||45|62|30"},
 		{"iss", "-22.5°, -45.3°|next pass in 47m|over South America"},
 		{"github", "14238|287|4|11"},
+		{"reddit", "pcgaming|Half-Life 3 finally confirmed at The Game Awards|polygon.com|2841|gabe_irl|2h|1247"},
 	}
 
 	// Build the scene set. Provide a non-nil stub for the github widget
 	// so buildScenes includes the github scene.
-	widgets := map[string]widget.Widget{"github": stubWidget{}}
+	widgets := map[string]widget.Widget{
+		"github": stubWidget{},
+		"reddit": stubWidget{},
+	}
 	scenes := buildScenes(widgets)
 	sceneByName := map[string]int{}
 	for i, s := range scenes {
