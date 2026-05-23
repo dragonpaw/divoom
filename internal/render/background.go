@@ -2286,6 +2286,21 @@ func buildHeroImage(now time.Time) *image.RGBA {
 
 	drawMorseRule(img)
 
+	// Baked "> " prompt to the left of the day-of-week. The day name
+	// itself renders as a device Week element (built-in type — saves
+	// one Text slot, doesn't count against the 6-Text cap). The prompt
+	// glyph stays here in cFgDark mono so the always-on header still
+	// reads as "> wednesday" rather than just "Wednesday".
+	if f, err := LoadFont("Iosevka-Regular.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 64, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			drawLabelLeft(img, "> ", face, 40, 90, GruvFgDark)
+			face.Close()
+		}
+	}
+
 	return img
 }
 

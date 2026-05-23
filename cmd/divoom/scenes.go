@@ -302,14 +302,20 @@ func alwaysOn(now time.Time) []frame.DispElement {
 	weekendText, weekendColor := weekendStatus(now)
 	return []frame.DispElement{
 		{
-			ID: idDay, Type: "Text",
-			StartX: 40, StartY: 30, Width: 720, Height: 80,
-			Align:       0,
-			FontSize:    64,
-			FontID:      fontMono,
-			FontColor:   dayColors[now.Weekday()],
-			BgColor:     cBgHard,
-			TextMessage: "> " + strings.ToLower(now.Weekday().String()),
+			// Week is a device built-in (renders the day name from
+			// the device's own clock). Doesn't count against the
+			// 6-Text cap. The "> " prompt to its left is baked into
+			// every scene bg by buildHeroImage; this element only
+			// owns the day name itself. StartX shifted right of the
+			// baked prompt; FontColor still picks up the per-day
+			// chroma so each weekday has its own colour.
+			ID: idDay, Type: "Week",
+			StartX: 110, StartY: 30, Width: 650, Height: 80,
+			Align:     0,
+			FontSize:  64,
+			FontID:    fontMono,
+			FontColor: dayColors[now.Weekday()],
+			BgColor:   cBgHard,
 		},
 		{
 			ID: idTime, Type: "Time",
