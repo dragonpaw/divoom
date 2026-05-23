@@ -39,17 +39,20 @@ func sunriseScene(widgets map[string]widget.Widget) *scene.Scene {
 				Align: 2, FontSize: 96, FontID: fontMono,
 				FontColor: cFg, BgColor: cBgHard,
 			},
-			// Sunrise time — left, yellow, just below the arc's left end.
+			// Sunrise time — left, yellow, tucked close under the
+			// arc's left end (y=840) so the time + label pair reads
+			// as a single grouping.
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 40, StartY: 900, Width: 240, Height: 60,
+				StartX: 40, StartY: 860, Width: 240, Height: 60,
 				Align: 2, FontSize: 40, FontID: fontMono,
 				FontColor: cYellow, BgColor: cBgHard,
 			},
-			// Sunset time — right, orange, below the arc's right end.
+			// Sunset time — right, orange, mirrored under the arc's
+			// right end.
 			{
 				ID: idSceneSub2, Type: "Text",
-				StartX: 520, StartY: 900, Width: 240, Height: 60,
+				StartX: 520, StartY: 860, Width: 240, Height: 60,
 				Align: 2, FontSize: 40, FontID: fontMono,
 				FontColor: cOrange, BgColor: cBgHard,
 			},

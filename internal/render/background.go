@@ -1768,11 +1768,11 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		// sun reads at the same darkness as every other corner glyph —
 		// the family-rule, not a per-scene override.
 		const (
-			horizonHalfW = 160 // half-length of the horizon bar (was 100)
-			horizonH     = 8   // horizon bar thickness (was 6)
-			sunR         = 105 // sun radius (was 60; ~1.75× to earn its space)
-			sunCyOff     = -14 // sun centre relative to cy (sits just above horizon)
-			rayR         = 14  // ray disc radius (was 9)
+			horizonHalfW = 100 // half-length of the horizon bar
+			horizonH     = 6   // horizon bar thickness
+			sunR         = 65  // sun radius
+			sunCyOff     = -10 // sun centre relative to cy (sits just above horizon)
+			rayR         = 9   // ray disc radius
 		)
 		// Horizon bar — centred on cy.
 		draw.Draw(img,
@@ -1785,13 +1785,11 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		draw.Draw(img,
 			image.Rect(cx-sunR-2, cy-horizonH/2, cx+sunR+2, cy+sunR+sunCyOff+2),
 			&image.Uniform{GruvBgHard}, image.Point{}, draw.Src)
-		// Five rays flicking up around the sun's top arc.
+		// Three rays flicking up around the sun's top arc.
 		for _, ray := range []image.Point{
-			{X: cx - 150, Y: sunCy - 70},
-			{X: cx - 80, Y: sunCy - 130},
-			{X: cx, Y: sunCy - 150},
-			{X: cx + 80, Y: sunCy - 130},
-			{X: cx + 150, Y: sunCy - 70},
+			{X: cx - 90, Y: sunCy - 40},
+			{X: cx, Y: sunCy - 80},
+			{X: cx + 90, Y: sunCy - 40},
 		} {
 			fillCircle(img, ray.X, ray.Y, rayR, c)
 		}
