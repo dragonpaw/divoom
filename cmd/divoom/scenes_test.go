@@ -490,6 +490,40 @@ func TestParseSubredditList(t *testing.T) {
 	}
 }
 
+// TestParsePriorityScenes pins the DIVOOM_PRIORITY_SCENES normaliser:
+// whitespace trimmed per entry, names lowercased, empties dropped,
+// unset/whitespace-only returns nil so serve.go can apply its
+// "weather,forecast" default.
+func TestParsePriorityScenes(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		{"empty returns nil", "", nil},
+		{"whitespace-only returns nil", "   ", nil},
+		{"single name", "weather", []string{"weather"}},
+		{"lowercases", "Weather", []string{"weather"}},
+		{"multi with whitespace + mixed case",
+			" Weather , Forecast , HN ",
+			[]string{"weather", "forecast", "hn"}},
+		{"drops empty entries", "weather,,,forecast,", []string{"weather", "forecast"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parsePriorityScenes(c.env)
+			if len(got) != len(c.want) {
+				t.Fatalf("parsePriorityScenes(%q) = %v, want %v", c.env, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("parsePriorityScenes(%q)[%d] = %q, want %q", c.env, i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestMarketsChangeBoth(t *testing.T) {
 	cases := []struct {
 		name string

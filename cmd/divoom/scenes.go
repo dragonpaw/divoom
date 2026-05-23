@@ -486,6 +486,25 @@ func parseSubredditList(env string) []string {
 	return out
 }
 
+// parsePriorityScenes splits a comma-separated DIVOOM_PRIORITY_SCENES env
+// value into a list of normalised scene names. Whitespace is trimmed and
+// entries are lowercased; empties are dropped. Empty/unset input returns
+// nil so the caller in serve.go can apply its default ("weather,forecast").
+func parsePriorityScenes(env string) []string {
+	if strings.TrimSpace(env) == "" {
+		return nil
+	}
+	var out []string
+	for _, raw := range strings.Split(env, ",") {
+		name := strings.ToLower(strings.TrimSpace(raw))
+		if name == "" {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
 // --- github formatters ---
 //
 // Widget output: "<lifetime_contributions>|<total_prs>|<open_prs>|<years_on_github>",

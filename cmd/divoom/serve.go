@@ -131,10 +131,37 @@ func runServe(ctx context.Context) error {
 		slog.Info("reddit scene disabled (set DIVOOM_SUBREDDITS)")
 	}
 
+	scenes := buildScenes(widgets)
+
+	// Priority bump: scenes named in DIVOOM_PRIORITY_SCENES get their
+	// weight set to priorityWeight so they fire ~3× more often than the
+	// default-weight scenes. Defaults to the live-data weather scenes
+	// when the env var is unset/empty. Unknown names are logged and
+	// ignored — a typo shouldn't crash startup.
+	priorityNames := parsePriorityScenes(os.Getenv("DIVOOM_PRIORITY_SCENES"))
+	if priorityNames == nil {
+		priorityNames = []string{"weather", "forecast"}
+	}
+	const priorityWeight = 60
+	for _, name := range priorityNames {
+		bumped := false
+		for _, s := range scenes {
+			if s.Name == name {
+				s.Weight = priorityWeight
+				slog.Info("priority scene weight bumped", "scene", name, "weight", priorityWeight)
+				bumped = true
+				break
+			}
+		}
+		if !bumped {
+			slog.Warn("priority scene not found", "name", name)
+		}
+	}
+
 	driver := &scene.Driver{
 		Client:   client,
 		AlwaysOn: alwaysOn,
-		Scenes:   buildScenes(widgets),
+		Scenes:   scenes,
 	}
 	logStartup(driver)
 	if err := driver.Run(ctx); err != nil {
