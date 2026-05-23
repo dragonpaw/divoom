@@ -1495,14 +1495,23 @@ func dictionarySceneDevil(opts DictionarySceneOpts) *scene.Scene {
 	headwordX := dictionaryHeadwordX(opts.Name)
 	elements := []frame.DispElement{
 		{
+			// StartY=465 so the 58pt headword's baseline (≈y=515)
+			// aligns with the baked "$ define" prompt baseline at
+			// y=515 — both rendered words sit on the same line.
 			ID: idSceneSub1, Type: "Text",
-			StartX: headwordX, StartY: 490, Width: CanvasW - 80 - headwordX, Height: 60,
+			StartX: headwordX, StartY: 465, Width: CanvasW - 80 - headwordX, Height: 70,
 			Align: 0, FontSize: 58, FontID: fontProse,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
 		{
+			// Body anchored at the top of the framed track (just
+			// below the bg's top rule at y=590) and runs downward.
+			// fitDevilBody picks the font size and writes StartY +
+			// Height for the wrap-aware tier; the body is v-top so
+			// short aphorisms sit right under the rule instead of
+			// floating mid-track.
 			ID: idSceneSub2, Type: "Text",
-			StartX: 160, StartY: 740, Width: 520, Height: 320,
+			StartX: 160, StartY: 620, Width: 520, Height: 440,
 			Align: 2, FontSize: 50, FontID: fontProse,
 			FontColor: cFg, BgColor: cBgHard,
 		},
@@ -1661,12 +1670,13 @@ func wordnikPosPron(raw string) (text, color string) {
 }
 
 // fitDevilBody auto-shrinks the punchline FontSize for long aphorisms.
-// Pattern: 60pt fits the ~95% of entries that are one or two sentences;
-// 44pt picks up the longer ones; 32pt covers the rare paragraph-length
-// entry so it doesn't clip. Vertically centres in the 280px track.
+// Pattern: 50pt fits ~95% of entries (one or two sentences); 38pt picks
+// up the longer ones; 28pt covers the rare paragraph-length entry so
+// it doesn't clip. Top-anchored — short aphorisms sit right under the
+// bg's top rule rather than floating mid-track in dead space.
 func fitDevilBody(text string, e frame.DispElement) frame.DispElement {
 	const (
-		trackTop       = 780
+		trackTop       = 620
 		trackBottom    = 1060
 		charWidthRatio = 0.45 // px per char ≈ FontSize * this
 		lineHeightFrac = 1.20
@@ -1677,8 +1687,10 @@ func fitDevilBody(text string, e frame.DispElement) frame.DispElement {
 		e.Height = trackH
 		return e
 	}
-	// Tier through 60 → 44 → 32 picking the largest that fits.
-	tiers := []int{60, 44, 32}
+	// Tier through 50 → 38 → 28 picking the largest that fits the
+	// track. 50pt is the new default (down from 60) so the headword
+	// stays the largest type on the page.
+	tiers := []int{50, 38, 28}
 	fs := tiers[len(tiers)-1]
 	rendered := trackH
 	for _, size := range tiers {
@@ -1698,13 +1710,12 @@ func fitDevilBody(text string, e frame.DispElement) frame.DispElement {
 		}
 	}
 	e.FontSize = fs
+	e.StartY = trackTop
 	if rendered >= trackH {
-		e.StartY = trackTop
 		e.Height = trackH
-		return e
+	} else {
+		e.Height = rendered
 	}
-	e.StartY = trackTop + (trackH-rendered)/2
-	e.Height = rendered
 	return e
 }
 
