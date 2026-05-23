@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -135,6 +136,17 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// the bottom-right corner stays as the wordmark's mirror.
 		drawHNChrome(img)
 		drawSceneGlyph(img, scene)
+	case SceneCatFacts:
+		// Field-guide entry chrome: italic-ish "Felis catus" binomial,
+		// short underline, taxonomic classification, pilcrow drop-marker
+		// in the body's left margin, footer hairline, and an
+		// observation-number + institution line in the footer. The
+		// sitting-cat silhouette in the bottom-right corner stays as
+		// the plate illustration.
+		drawSceneGlyph(img, scene)
+		obs := rand.IntN(999) + 1
+		inst := catfactsInstitutions[rand.IntN(len(catfactsInstitutions))]
+		DrawCatfactsChrome(img, obs, inst)
 	default:
 		drawSceneGlyph(img, scene)
 	}
@@ -448,6 +460,138 @@ func drawHNChrome(img *image.RGBA) {
 	// Dim footer rule (1px) above the metadata footer.
 	draw.Draw(img, image.Rect(left, footerRuleY, right, footerRuleY+1),
 		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+}
+
+// catfactsInstitutions is the small pool of in-universe attributions the
+// catfacts scene picks from per bg generation. Re-pushing produces a new
+// "volume" with a fresh number + institution — a tiny delight that
+// rewards repeat viewing.
+var catfactsInstitutions = []string{
+	"Cat Behaviour Study Group",
+	"Royal Veterinary College",
+	"British Feline Society",
+	"Society for Cat Research",
+	"Domestic Feline Council",
+	"International Cat Studies",
+	"Felidae Observation Trust",
+}
+
+// DrawCatfactsChrome bakes the field-guide entry chrome onto the catfacts
+// scene background: the binomial "Felis catus" top-left, a short rule
+// under it, the taxonomic classification beneath, a pilcrow drop-marker
+// in the body's left margin, a footer hairline, and the observation
+// number + institution in the footer. Italic faces fall back to regular
+// since the project's fonts/ set ships only the upright variants.
+func DrawCatfactsChrome(img *image.RGBA, observationNum int, institution string) {
+	const (
+		left          = 80
+		right         = CanvasW - 80
+		binomialBase  = 485
+		ruleY         = 540
+		ruleRightX    = 280
+		classBase     = 555
+		pilcrowBase   = 655
+		footerRuleY   = 1140
+		footerBase    = 1160
+		footerRightX0 = 480
+	)
+
+	// Binomial: Roboto Condensed Light 44pt. The project's fonts/ set
+	// has no italic TTF; the binomial reads as a scientific name from
+	// context (followed immediately by MAMMALIA · CARNIVORA · FELIDAE).
+	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 44, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			drawLabelLeft(img, "Felis catus", face, left, binomialBase, GruvFg)
+			face.Close()
+		} else {
+			slog.Warn("catfacts chrome: binomial face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("catfacts chrome: binomial font load failed", "err", err)
+	}
+
+	// Short underline rule under the binomial.
+	draw.Draw(img, image.Rect(left, ruleY, ruleRightX, ruleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+
+	// Taxonomic classification, fontProseLight-equivalent 22pt dim.
+	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 22, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			drawLabelLeft(img, "MAMMALIA · CARNIVORA · FELIDAE",
+				face, left, classBase, GruvFgDark)
+			face.Close()
+		} else {
+			slog.Warn("catfacts chrome: classification face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("catfacts chrome: classification font load failed", "err", err)
+	}
+
+	// Pilcrow drop-marker in the small left margin beside the fact body.
+	if f, err := LoadFont("RobotoCondensed-Regular.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 40, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			drawLabelLeft(img, "¶", face, left, pilcrowBase, GruvFgDark)
+			face.Close()
+		} else {
+			slog.Warn("catfacts chrome: pilcrow face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("catfacts chrome: pilcrow font load failed", "err", err)
+	}
+
+	// Footer hairline.
+	draw.Draw(img, image.Rect(left, footerRuleY, right, footerRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+
+	// Footer left: observation number.
+	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 26, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			drawLabelLeft(img,
+				fmt.Sprintf("Observation №%d", observationNum),
+				face, left, footerBase, GruvFgDark)
+			face.Close()
+		} else {
+			slog.Warn("catfacts chrome: footer-left face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("catfacts chrome: footer-left font load failed", "err", err)
+	}
+
+	// Footer right: institution name (right-aligned within its slot).
+	// Same italic note as the binomial — no italic TTF available, so
+	// upright is used.
+	if institution != "" {
+		if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+			face, err := opentype.NewFace(f, &opentype.FaceOptions{
+				Size: 24, DPI: 72, Hinting: font.HintingFull,
+			})
+			if err == nil {
+				// drawLabelRight clamps the text against the right edge
+				// of its slot; the left bound (footerRightX0) is implicit
+				// in the spec but not enforced — the institution names
+				// are short enough that they fit comfortably.
+				_ = footerRightX0
+				drawLabelRight(img, institution, face, right, footerBase, GruvFgDark)
+				face.Close()
+			} else {
+				slog.Warn("catfacts chrome: footer-right face init failed", "err", err)
+			}
+		} else {
+			slog.Warn("catfacts chrome: footer-right font load failed", "err", err)
+		}
+	}
 }
 
 // drawFromSourceChrome bakes the in-universe header strip: Header on the

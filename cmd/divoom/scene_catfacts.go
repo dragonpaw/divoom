@@ -6,31 +6,34 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// "Cat facts" — promoted out of the whimsy rotator into its own
-// scene so the cat silhouette glyph in the bottom-right corner
-// gets to be the dominant visual signature. One body Text for
-// the fact prose; the "cat fact" header from the widget's
-// "cat fact|<body>" output is dropped — the glyph carries the
-// label work. Element count 4 (3 top + 1 body) collides only
-// with the rare easter scene; Driver.pick()'s same-count rule
-// blocks direct easter↔catfacts transitions, which is fine.
+// "Cat facts" rendered as a field-guide entry for Felis catus. The
+// scientific name, taxonomic line, pilcrow drop-marker, footer hairline,
+// and observation-number + institution footer are baked into the
+// background (see render.DrawCatfactsChrome). The scene itself contributes
+// a single body Text for the fact prose — the baked "Felis catus"
+// binomial replaces the old sceneTitle("cat fact") header.
+//
+// Element count: 1 body Text + always-on 2 Text + Time = 3 Text + 1 Time.
+// Same-count collisions are blocked by Driver.pick(), which is fine.
 func catfactsScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "catfacts",
 		Weight: 20,
 		BgPath: bgCatFacts,
 		Elements: []frame.DispElement{
-			sceneTitle("cat fact"),
 			{
+				// Fact body: left-aligned, sits to the right of the baked
+				// pilcrow at x=80. StartX=120 leaves a small left margin
+				// for the marker; the track wraps to 4-6 lines of prose.
 				ID: idSceneSub1, Type: "Text",
-				StartX: 80, StartY: 540, Width: 640, Height: 560,
-				Align: 2, FontSize: 38, FontID: fontProse,
+				StartX: 120, StartY: 640, Width: 600, Height: 420,
+				Align: 0, FontSize: 40, FontID: fontProse,
 				FontColor: cFg, BgColor: cBgHard,
 			},
 		},
 		Widget: widgets["catfacts"],
 		Mounts: []scene.Mount{
-			{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBody},
+			{ID: idSceneSub1, Format: pipeAt(1)},
 		},
 	}
 }
