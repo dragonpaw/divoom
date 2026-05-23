@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -372,6 +374,35 @@ func bgNASAFor(i int) string {
 // activation. Pool size is dynamic — see cocktailPoolSize().
 func bgCocktailFor(i int) string {
 	return fmt.Sprintf("/userdata/wallclock_bg_cocktail_%03d.jpg", i)
+}
+
+// newIndexWalker returns a function that yields 0..n-1 in a freshly
+// shuffled order, then reshuffles once the order is exhausted and
+// starts over. Returns 0 forever when n < 1.
+//
+// Shared by the NASA and cocktail scenes: each scene needs to
+// rotate through every cached bg before repeating any (so a given
+// drink/photo always sits at the same indexed path → the per-item
+// disk cache stays valid across pushes) while still producing a
+// fresh ordering on every daemon restart.
+func newIndexWalker(n int) func() int {
+	if n < 1 {
+		return func() int { return 0 }
+	}
+	var mu sync.Mutex
+	order := rand.Perm(n)
+	next := 0
+	return func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		if next >= len(order) {
+			order = rand.Perm(n)
+			next = 0
+		}
+		i := order[next]
+		next++
+		return i
+	}
 }
 
 // sceneTitle returns the canonical scene-title element — small, dim,
