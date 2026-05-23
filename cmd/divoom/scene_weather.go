@@ -6,22 +6,20 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// "Weather" — console-strip layout. The widget emits
-// "<temp>°<unit>|<outlook>|<hazard>|<aqi>|<humidity>|<rain>". The
-// scene has two dynamic Text elements (the device caps Text at 6;
-// always-on already uses 3, leaving 3 for the scene including the
-// baked title — we use 2):
+// "weather" — three-row terminal-style readout. The widget emits
+// "<temp>°<unit>|<outlook>|<hazard>|<aqi>|<humidity>|<rain>". With
+// the always-on header freed up to 2 Text + Time + Week, the scene
+// has 4 Text slots; we use three:
 //
-//   - Big temperature (huge, colour by reading via weatherTempColor).
-//     The outlook is communicated visually by the bg's corner glyph
-//     so we don't burn an element on the word.
-//   - Bottom strip: when an NWS alert is firing, "⚠ <hazard>" in red;
-//     otherwise "<COND> · AIR <aqi> · HUM <hum>% · RAIN <rain>%".
+//   - Big temperature, colour-banded by reading.
+//   - Condition / hazard row: outlook word in its outlook colour, or
+//     "⚠ <hazard>" in red when an NWS alert is firing.
+//   - Bottom strip: "AIR <aqi> · HUM <hum>% · RAIN <rain>%" coloured
+//     by AQI band (cleared to "—" when a source fetch failed).
 //
-// The "weather" title row (cFgDark 26pt Roboto Condensed Light) is
-// baked into the bg by render.drawWeatherChrome — moving it out of
-// the device-side elements bought us the cap headroom needed for the
-// always-on weekend split.
+// The "weather" title row is baked into the bg by drawWeatherChrome;
+// the bottom strip is vertically centred between the two hairlines
+// the chrome paints at y=985 and y=1095.
 //
 // The bg JPG is picked per outlook via BgPathFor so the corner glyph
 // matches the current condition.
@@ -39,17 +37,27 @@ func weatherScene(widgets map[string]widget.Widget) *scene.Scene {
 			// (flips red when outlook == "hazard").
 			{
 				ID: idSceneMain, Type: "Text",
-				StartX: 80, StartY: 560, Width: 640, Height: 320,
-				Align: 2, FontSize: 240, FontID: fontProseLight,
+				StartX: 80, StartY: 560, Width: 640, Height: 260,
+				Align: 2, FontSize: 220, FontID: fontProseLight,
 				FontColor: cFg, BgColor: cBgHard,
 			},
-			// Combined bottom strip — outlook word + three stats, or
-			// the hazard headline when an NWS alert is active. Sits in
-			// the y=1000-1080 band between the two hairlines baked by
-			// drawWeatherChrome.
+			// Condition / hazard row — outlook word in its outlook
+			// colour, or the NWS alert headline when one's firing.
+			// Sits in the band between the temperature and the bottom
+			// strip's top hairline.
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 80, StartY: 1000, Width: 640, Height: 80,
+				StartX: 80, StartY: 870, Width: 640, Height: 80,
+				Align: 2, FontSize: 56, FontID: fontProse,
+				FontColor: cFg, BgColor: cBgHard,
+			},
+			// Bottom AIR/HUM/RAIN strip — vertically centred in the
+			// y=985-1095 band drawn by drawWeatherChrome. The 32pt
+			// mono baseline at ≈y=1052 puts the visible text height
+			// (~32px) centred around the band's middle (y=1040).
+			{
+				ID: idSceneSub2, Type: "Text",
+				StartX: 80, StartY: 1015, Width: 640, Height: 60,
 				Align: 2, FontSize: 32, FontID: fontMono,
 				FontColor: cFg, BgColor: cBgHard,
 			},
@@ -57,7 +65,8 @@ func weatherScene(widgets map[string]widget.Widget) *scene.Scene {
 		Widget: widgets["weather"],
 		Mounts: []scene.Mount{
 			{ID: idSceneMain, Format: weatherTemp},
-			{ID: idSceneSub1, Format: weatherStrip},
+			{ID: idSceneSub1, Format: weatherConditionOrHazard},
+			{ID: idSceneSub2, Format: weatherStats},
 		},
 	}
 }

@@ -74,6 +74,7 @@ const (
 	bgTwain      = "/userdata/wallclock_bg_twain.jpg"
 	bgFortune    = "/userdata/wallclock_bg_fortune.jpg"
 	bgReddit     = "/userdata/wallclock_bg_reddit.jpg"
+	bgForecast   = "/userdata/wallclock_bg_forecast.jpg"
 
 	// One bg per weather outlook so the icon in the bottom-right corner
 	// matches the current condition. Selected at activation time via
@@ -294,7 +295,7 @@ func weekendStatus(now time.Time) (text, color string) {
 	if n < 0 {
 		n = 0 // defensive; Friday-pre-6pm falls here as +0d
 	}
-	return fmt.Sprintf("weekend+%dd", n), cFgDark
+	return fmt.Sprintf("weekend-%dd", n), cFgDark
 }
 
 func alwaysOn(now time.Time) []frame.DispElement {
@@ -443,6 +444,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 		onthisdayScene(widgets),
 		sunriseScene(widgets),
 		weatherScene(widgets),
+		forecastScene(widgets),
 		nasaScene(widgets),
 		cocktailScene(widgets),
 		easterScene(widgets),
@@ -1043,31 +1045,33 @@ func weatherPipeField(raw string, i int) string {
 	return parts[i]
 }
 
-// weatherStrip renders the bottom console strip. When an NWS alert
-// fires (pipe[2] non-empty) the strip becomes a red "⚠ <hazard>"
-// warning that takes over the whole row. Otherwise it shows the
-// outlook word + the three stats joined by middots:
-// "FOG · AIR 50 · HUM 96% · RAIN 2%". Missing stat segments render
-// as "—" so a failed upstream lookup doesn't lie about clean air.
-// The colour is bound to AQI band when present so the strip doubles
-// as the air-quality alert lamp (red at AQI>200, etc.).
-func weatherStrip(raw string) (text, color string) {
-	hazard := weatherPipeField(raw, 2)
-	if hazard != "" {
+// weatherConditionOrHazard renders the condition / hazard row.
+// When the hazard segment (pipe[2]) is non-empty there's an active
+// NWS alert at the configured point — render its headline in red.
+// Otherwise show the outlook word in its outlook colour.
+func weatherConditionOrHazard(raw string) (text, color string) {
+	if hazard := weatherPipeField(raw, 2); hazard != "" {
 		return "⚠ " + hazard, cRed
 	}
-	outlook := strings.ToUpper(weatherOutlookFrom(raw))
+	outlook := weatherOutlookFrom(raw)
+	return outlook, weatherOutlookColor(outlook)
+}
+
+// weatherStats renders the AIR/HUM/RAIN strip. Missing segments
+// render as "—" so a failed upstream lookup doesn't lie. Colour is
+// bound to the AQI band so the strip doubles as the air-quality
+// alert lamp (red at AQI>200, etc.).
+func weatherStats(raw string) (text, color string) {
 	aqi := weatherPipeField(raw, 3)
 	hum := weatherPipeField(raw, 4)
 	rain := weatherPipeField(raw, 5)
-
 	dash := func(v, suffix string) string {
 		if v == "" {
 			return "—"
 		}
 		return v + suffix
 	}
-	parts := []string{outlook,
+	parts := []string{
 		"AIR " + dash(aqi, ""),
 		"HUM " + dash(hum, "%"),
 		"RAIN " + dash(rain, "%"),
@@ -1077,6 +1081,28 @@ func weatherStrip(raw string) (text, color string) {
 		c = aqiColor(n)
 	}
 	return strings.Join(parts, " · "), c
+}
+
+// forecastRow returns a Format closure for one day of the
+// multi-day forecast strip. The widget emits 4 segments per day
+// ("DAY|HI|LO|OUTLOOK"), and idx selects which day this element
+// renders (0 = tomorrow). Output: "fri   73° / 58°   cloudy" with
+// the outlook word colour-coding the whole row so the strip reads
+// as a column of weather-coded rows.
+func forecastRow(idx int) func(raw string) (text, color string) {
+	return func(raw string) (text, color string) {
+		parts := strings.Split(raw, "|")
+		base := idx * 4
+		if base+3 >= len(parts) {
+			return "", cFgDark
+		}
+		day := parts[base]
+		hi := parts[base+1]
+		lo := parts[base+2]
+		outlook := parts[base+3]
+		text = fmt.Sprintf("%-4s  %3s° / %3s°  %s", day, hi, lo, outlook)
+		return text, weatherOutlookColor(outlook)
+	}
 }
 
 // aqiColor maps an EPA AQI reading to its band colour. Bands are

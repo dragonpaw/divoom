@@ -15,12 +15,12 @@ func TestWeekendStatus(t *testing.T) {
 		wantColor string
 	}{
 		// Outside the window — dim countdown.
-		{"mon noon", time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC), "weekend+4d", cFgDark},
-		{"tue noon", time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC), "weekend+3d", cFgDark},
-		{"wed noon", time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC), "weekend+2d", cFgDark},
-		{"thu noon", time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC), "weekend+1d", cFgDark},
-		{"fri noon (pre-6pm)", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC), "weekend+0d", cFgDark},
-		{"fri 5:59pm", time.Date(2026, 5, 22, 17, 59, 0, 0, time.UTC), "weekend+0d", cFgDark},
+		{"mon noon", time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC), "weekend-4d", cFgDark},
+		{"tue noon", time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC), "weekend-3d", cFgDark},
+		{"wed noon", time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC), "weekend-2d", cFgDark},
+		{"thu noon", time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC), "weekend-1d", cFgDark},
+		{"fri noon (pre-6pm)", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC), "weekend-0d", cFgDark},
+		{"fri 5:59pm", time.Date(2026, 5, 22, 17, 59, 0, 0, time.UTC), "weekend-0d", cFgDark},
 		// Inside the window — yellow "weekend!".
 		{"fri 6pm sharp", time.Date(2026, 5, 22, 18, 0, 0, 0, time.UTC), "weekend!", cYellow},
 		{"fri 11pm", time.Date(2026, 5, 22, 23, 0, 0, 0, time.UTC), "weekend!", cYellow},
@@ -28,7 +28,7 @@ func TestWeekendStatus(t *testing.T) {
 		{"sun noon", time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC), "weekend!", cYellow},
 		{"mon 2:59am", time.Date(2026, 5, 25, 2, 59, 0, 0, time.UTC), "weekend!", cYellow},
 		// Back to countdown at 3am Monday.
-		{"mon 3am sharp", time.Date(2026, 5, 25, 3, 0, 0, 0, time.UTC), "weekend+4d", cFgDark},
+		{"mon 3am sharp", time.Date(2026, 5, 25, 3, 0, 0, 0, time.UTC), "weekend-4d", cFgDark},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -54,24 +54,43 @@ func TestISOWeek(t *testing.T) {
 	}
 }
 
-// TestWeatherStrip: the bottom strip combines outlook + AIR/HUM/RAIN
-// stats, or replaces the lot with a red hazard headline when an NWS
-// alert is firing. The strip's colour is bound to the AQI band so it
-// doubles as the air-quality alert lamp.
-func TestWeatherStrip(t *testing.T) {
+// TestWeatherConditionOrHazard: outlook word in its outlook colour
+// normally, hazard headline in red when an NWS alert is firing.
+func TestWeatherConditionOrHazard(t *testing.T) {
 	cases := []struct {
 		name, raw, wantText, wantColor string
 	}{
-		{"plain clear", "63°F|clear||45|62|30", "CLEAR · AIR 45 · HUM 62% · RAIN 30%", cGreen},
-		{"AQI 120 → orange band", "63°F|clear||120|62|30", "CLEAR · AIR 120 · HUM 62% · RAIN 30%", cOrange},
-		{"hazard wins over the stats", "78°F|hazard|Red Flag Warning|45|62|30", "⚠ Red Flag Warning", cRed},
-		{"missing stats → em-dashes", "55°F|fog||||", "FOG · AIR — · HUM — · RAIN —", cFg},
+		{"clear", "63°F|clear||45|62|30", "clear", cYellow},
+		{"cloudy", "63°F|cloudy||45|62|30", "cloudy", cFgDark},
+		{"rain", "55°F|rain||10|80|90", "rain", cBlue},
+		{"hazard wins", "78°F|hazard|Red Flag Warning|45|62|30", "⚠ Red Flag Warning", cRed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			text, color := weatherStrip(tc.raw)
+			text, color := weatherConditionOrHazard(tc.raw)
 			if text != tc.wantText || color != tc.wantColor {
-				t.Errorf("weatherStrip(%q) = (%q,%q), want (%q,%q)",
+				t.Errorf("weatherConditionOrHazard(%q) = (%q,%q), want (%q,%q)",
+					tc.raw, text, color, tc.wantText, tc.wantColor)
+			}
+		})
+	}
+}
+
+// TestWeatherStats: AIR/HUM/RAIN row joined by middots, dashed for
+// missing fields, colour bound to AQI band.
+func TestWeatherStats(t *testing.T) {
+	cases := []struct {
+		name, raw, wantText, wantColor string
+	}{
+		{"plain", "63°F|clear||45|62|30", "AIR 45 · HUM 62% · RAIN 30%", cGreen},
+		{"AQI orange band", "63°F|clear||120|62|30", "AIR 120 · HUM 62% · RAIN 30%", cOrange},
+		{"missing → em-dashes", "55°F|fog||||", "AIR — · HUM — · RAIN —", cFg},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, color := weatherStats(tc.raw)
+			if text != tc.wantText || color != tc.wantColor {
+				t.Errorf("weatherStats(%q) = (%q,%q), want (%q,%q)",
 					tc.raw, text, color, tc.wantText, tc.wantColor)
 			}
 		})

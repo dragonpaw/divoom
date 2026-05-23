@@ -108,6 +108,7 @@ const (
 	SceneStoics
 	SceneTwain
 	SceneFortune
+	SceneForecast
 )
 
 // SceneBackground builds the hero frame and draws the scene's glyph into
@@ -188,6 +189,9 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// as a device Text element below the post title.
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "subreddit picks")
+	case SceneForecast:
+		drawSceneGlyph(img, scene)
+		drawBakedSceneTitle(img, "next 4 days")
 	case SceneDidYouKnow:
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "did you know?")

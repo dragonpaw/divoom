@@ -88,6 +88,9 @@ func runRender(args []string) error {
 		{name: "scene-reddit", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneReddit, render.FormatJPEG, now)
 		}},
+		{name: "scene-forecast", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneForecast, render.FormatJPEG, now)
+		}},
 	}
 	// Quote-family scenes — baked chrome per family (see quote_family.go).
 	for _, q := range quoteSceneRegistry {

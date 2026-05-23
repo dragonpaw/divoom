@@ -91,7 +91,7 @@ func weekendCountdown(now time.Time) (text string, c color.RGBA) {
 	if n < 0 {
 		n = 0
 	}
-	return fmt.Sprintf("weekend+%dd", n), GruvFgDark
+	return fmt.Sprintf("weekend-%dd", n), GruvFgDark
 }
 
 func bakeAlwaysOnHeader(img *image.RGBA, now time.Time) error {

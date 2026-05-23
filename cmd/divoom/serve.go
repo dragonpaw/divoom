@@ -98,6 +98,7 @@ func runServe(ctx context.Context) error {
 		"fortune":    quotes.NewFortune(),
 		"sunrise":    sky.NewSunrise(),
 		"weather":    weatherWidget,
+		"forecast":   weather.NewForecast("37.9358", "-122.3477"),
 		"zenquotes":  quotes.NewZenQuotes(),
 		"devil":      quotes.NewDevilsDictionary(),
 		// nasa + cocktail scenes have no live widget — their bg JPGs
@@ -206,6 +207,7 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneGitHub, render.FormatJPEG, now) }, bgGitHub},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneTIL, render.FormatJPEG, now) }, bgTIL},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneReddit, render.FormatJPEG, now) }, bgReddit},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneForecast, render.FormatJPEG, now) }, bgForecast},
 	}
 	// Moonphase: one bg per pre-rendered disc variant across the synodic
 	// cycle (14 total). BgPathFor picks the right one per phase reading.
