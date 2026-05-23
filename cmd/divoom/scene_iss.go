@@ -1,58 +1,93 @@
 package main
 
 import (
+	"time"
+
 	"github.com/dragonpaw/divoom/internal/frame"
 	"github.com/dragonpaw/divoom/internal/scene"
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// "ISS" — current sub-satellite point (lat/lon) of the
-// International Space Station, plus the wall-clock time until
-// its next visible pass over our location (when available) and
-// a coarse "over <region>" hint. Widget emits
-// "<lat>°, <lon>°|<next-pass>|over <region>"; the pass and
-// region segments are AllowEmpty because the next-pass API has
-// historically been flaky and the region lookup is a coarse
-// continent-vs-ocean band table that may return an empty hint.
-// 10% margins (StartX 80, Width 640) match the quote scenes. 6
-// elements total (3 top + 3 body) collides with nasa / cocktail
-// — Driver.pick()'s same-count rule blocks direct transitions
-// between them, which is fine.
+// "ISS" — sub-satellite-point tracker. The scene's background bakes a
+// dim equirectangular world map plus a fixed telemetry strip
+// ("●  ISS  ·  408km altitude  ·  7.66km/s") so the body only has to
+// install three live Text elements:
+//
+//   - a yellow ● dot positioned over the current lat/lon (recomputed
+//     by OnActivate at every activation from the widget's pipe[0]),
+//   - a "over <location>" location line, and
+//   - a coords-and-next-pass row.
+//
+// The widget emits "<lat>°, <lon>°|<next-pass>|over <region>"; the
+// pass and region segments may be empty when their respective
+// upstreams flake out, so the body mounts use AllowEmpty.
 func issScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "iss",
 		Weight: 20,
 		BgPath: bgISS,
 		Elements: []frame.DispElement{
-			sceneTitle("ISS overhead"),
-			// Big lat/lon — mono, fg.
+			// Sub-satellite dot — single ● glyph, positioned per
+			// activation. StartX/StartY here are placeholders; the
+			// real values come from OnActivate. Hidden (StartX=-100)
+			// on a parse failure so a bad widget value can't render
+			// a stray dot at the map's top-left corner.
 			{
 				ID: idSceneMain, Type: "Text",
-				StartX: 80, StartY: 520, Width: 640, Height: 140,
-				Align: 2, FontSize: 80, FontID: fontMono,
-				FontColor: cFg, BgColor: cBgHard,
+				StartX: -100, StartY: -100, Width: 24, Height: 24,
+				Align: 1, FontSize: 24, FontID: fontProse,
+				FontColor: cYellow, BgColor: cBgHard,
+				TextMessage: "●",
 			},
-			// Next-pass row — medium prose, yellow (event-imminent
-			// signal colour).
+			// Location line — "over <region>", prose, fg.
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 80, StartY: 680, Width: 640, Height: 100,
-				Align: 2, FontSize: 50, FontID: fontProseLight,
-				FontColor: cYellow, BgColor: cBgHard,
+				StartX: 80, StartY: 970, Width: 640, Height: 70,
+				Align: 2, FontSize: 44, FontID: fontProse,
+				FontColor: cFg, BgColor: cBgHard,
 			},
-			// Region hint — small, dim caption.
+			// Coords + next-pass row — mono, dim. Composed by
+			// issCoordsAndPass from pipe[0] + pipe[1].
 			{
 				ID: idSceneSub2, Type: "Text",
-				StartX: 80, StartY: 800, Width: 640, Height: 80,
-				Align: 2, FontSize: 32, FontID: fontProseLight,
+				StartX: 80, StartY: 1050, Width: 640, Height: 60,
+				Align: 2, FontSize: 28, FontID: fontMono,
 				FontColor: cFgDark, BgColor: cBgHard,
 			},
 		},
 		Widget: widgets["iss"],
 		Mounts: []scene.Mount{
-			{ID: idSceneMain, Format: pipeAt(0)},
-			{ID: idSceneSub1, Format: pipeAt(1), AllowEmpty: true},
-			{ID: idSceneSub2, Format: pipeAt(2), AllowEmpty: true},
+			// The dot element gets no Format — its TextMessage is the
+			// literal "●" baked into Elements. The mount on idSceneMain
+			// is unnecessary; positioning happens in OnActivate, which
+			// runs after Mounts.
+			{ID: idSceneSub1, Format: pipeAt(2), AllowEmpty: true},
+			{ID: idSceneSub2, Format: issCoordsAndPass, AllowEmpty: true},
 		},
+		OnActivate: issPositionDot,
+	}
+}
+
+// issPositionDot recomputes the ISS dot element's StartX/StartY from
+// the widget's current lat/lon (pipe[0]). On parse failure the dot is
+// hidden by parking it at StartX=-100 so the body element renders
+// off-screen rather than at the map's origin.
+func issPositionDot(_ time.Time, raw string, elements []frame.DispElement) {
+	lat, lon, ok := parseISSCoords(pipeAtRaw(raw, 0))
+	for i := range elements {
+		if elements[i].ID != idSceneMain {
+			continue
+		}
+		if !ok {
+			elements[i].StartX = -100
+			elements[i].StartY = -100
+			return
+		}
+		x := issMapX(lon)
+		y := issMapY(lat)
+		// Centre the 24×24 element on the computed point.
+		elements[i].StartX = x - 12
+		elements[i].StartY = y - 12
+		return
 	}
 }

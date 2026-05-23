@@ -169,6 +169,29 @@
 //	rsvg-convert -w 200 -h 200 \
 //	  -o internal/render/assets/weather/clear.png /tmp/wi-day-sunny.svg
 //
+// world_map_equirect.png is a 720x360 binary mask of the world's
+// continents, derived from NASA's public-domain Blue Marble equirectangular
+// projection on Wikimedia Commons:
+//
+//	https://commons.wikimedia.org/wiki/File:Equirectangular_projection_SW.jpg
+//	https://upload.wikimedia.org/wikipedia/commons/8/83/Equirectangular_projection_SW.jpg
+//
+// NASA imagery is in the public domain. Only the land-vs-water silhouette is
+// used here; every opaque pixel of the mask is overpainted in GruvFgDark at
+// bake time so the continents read as a dim equirectangular outline beneath
+// the ISS sub-satellite dot.
+//
+// To regenerate the PNG from the source JPG (land = opaque, water =
+// transparent, 720x360):
+//
+//	curl -o /tmp/bluemarble.jpg \
+//	  https://upload.wikimedia.org/wikipedia/commons/8/83/Equirectangular_projection_SW.jpg
+//	convert /tmp/bluemarble.jpg -resize 720x360! \
+//	  -channel B -separate +channel \
+//	  -threshold 55% -negate PNG32:- | \
+//	  convert - -transparent black \
+//	  PNG32:internal/render/assets/world_map_equirect.png
+//
 // git.png is the "git" branch-diamond icon from Bootstrap Icons (MIT):
 //
 //	https://github.com/twbs/icons
@@ -243,3 +266,6 @@ var tilPNG []byte
 
 //go:embed assets/book.png
 var bookPNG []byte
+
+//go:embed assets/world_map_equirect.png
+var worldMapEquirectPNG []byte
