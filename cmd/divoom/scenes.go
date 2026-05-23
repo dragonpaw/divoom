@@ -73,6 +73,7 @@ const (
 	bgStoics     = "/userdata/wallclock_bg_stoics.jpg"
 	bgTwain      = "/userdata/wallclock_bg_twain.jpg"
 	bgFortune    = "/userdata/wallclock_bg_fortune.jpg"
+	bgReddit     = "/userdata/wallclock_bg_reddit.jpg"
 
 	// One bg per weather outlook so the icon in the bottom-right corner
 	// matches the current condition. Selected at activation time via
@@ -450,7 +451,37 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 	if widgets["github"] != nil {
 		scenes = append(scenes, githubScene(widgets))
 	}
+	if widgets["reddit"] != nil {
+		scenes = append(scenes, redditScene(widgets))
+	}
 	return scenes
+}
+
+// parseSubredditList splits a comma-separated DIVOOM_SUBREDDITS env
+// value into a list of normalised subreddit names. Each entry has
+// surrounding whitespace trimmed, a leading "r/" (case-insensitive)
+// stripped, and is lowercased; empties are dropped. Empty/unset input
+// returns nil so the reddit scene's wire-up in serve.go can drop the
+// scene from the rotation entirely.
+func parseSubredditList(env string) []string {
+	if strings.TrimSpace(env) == "" {
+		return nil
+	}
+	var out []string
+	for _, raw := range strings.Split(env, ",") {
+		sub := strings.TrimSpace(raw)
+		// Strip a leading "r/" (case-insensitive) so users can paste
+		// either "r/pcgaming" or "pcgaming" and get the same result.
+		if len(sub) >= 2 && strings.EqualFold(sub[:2], "r/") {
+			sub = sub[2:]
+		}
+		sub = strings.ToLower(strings.TrimSpace(sub))
+		if sub == "" {
+			continue
+		}
+		out = append(out, sub)
+	}
+	return out
 }
 
 // --- github formatters ---

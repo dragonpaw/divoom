@@ -120,6 +120,16 @@ func runServe(ctx context.Context) error {
 		slog.Info("github scene disabled (set GITHUB_USER + GITHUB_TOKEN)")
 	}
 
+	// Reddit scene is opt-in via DIVOOM_SUBREDDITS — a comma-separated
+	// list of subreddit names. Unset/empty drops the scene from the
+	// rotation entirely (same gate-pattern as the github scene).
+	if subs := parseSubredditList(os.Getenv("DIVOOM_SUBREDDITS")); len(subs) > 0 {
+		widgets["reddit"] = news.NewRedditTopOfDay(subs)
+		slog.Info("reddit scene enabled", "subs", subs)
+	} else {
+		slog.Info("reddit scene disabled (set DIVOOM_SUBREDDITS)")
+	}
+
 	driver := &scene.Driver{
 		Client:   client,
 		AlwaysOn: alwaysOn,
@@ -195,6 +205,7 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneISS, render.FormatJPEG, now) }, bgISS},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneGitHub, render.FormatJPEG, now) }, bgGitHub},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneTIL, render.FormatJPEG, now) }, bgTIL},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneReddit, render.FormatJPEG, now) }, bgReddit},
 	}
 	// Moonphase: one bg per pre-rendered disc variant across the synodic
 	// cycle (14 total). BgPathFor picks the right one per phase reading.

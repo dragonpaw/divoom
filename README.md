@@ -55,6 +55,7 @@ don't try to host endpoints the frame polls. Instead the daemon:
 | **easter** | (rare, weight 1 of ~480) Random whimsical one-liner printed dark-on-yellow _inside_ a cracked egg, with a "rare drop · ~1 in 200" caption. |
 | **github** | Lifetime contributions (hero number, comma-separated, green) + three-column stat tile of total PRs / open PRs (cAqua when >0) / years on GitHub. |
 | **hn** | Top Hacker News story filtered by keyword — title + domain + score / comments / author byline. |
+| **reddit** | Top-of-day post from a randomly-chosen `DIVOOM_SUBREDDITS` entry — title hero, `r/<sub>` accent, link domain, ▲ score / byline / age / comments footer. |
 | **nasa** | Astronomy Picture of the Day from a hand-curated pool of **121 iconic dates** (JWST releases, Hubble milestones, eclipses, Cassini, Pluto, EHT, …). One bake per date, indexed bg paths, shuffled per daemon start. |
 | **cocktail** | Random drink from TheCocktailDB's Cocktail + Shot categories (~300 drinks) rendered as a typographic recipe card: drink name (huge), glass · category subhead, ingredient rows with measurements, wrapped method. Stable indexed paths, shuffled walk per daemon start. |
 | **fortune / devil / wordnik / jargon** | Four dictionary / quote terminal layouts — `$ <cmd>` shell prompt + body + baked source/author footer. |

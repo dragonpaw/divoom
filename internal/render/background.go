@@ -103,6 +103,7 @@ const (
 	SceneISS
 	SceneGitHub
 	SceneTIL
+	SceneReddit
 	SceneWordnik
 	SceneStoics
 	SceneTwain
@@ -180,6 +181,13 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// per-type cap and silently get dropped on-device.
 		drawSceneGlyph(img, scene)
 		drawGitHubChrome(img)
+	case SceneReddit:
+		// Reddit scene chrome: small upvote-arrow glyph in the bottom-
+		// right corner, canonical "subreddit picks" title row at the
+		// top of the body area. The dynamic "r/<sub>" accent comes in
+		// as a device Text element below the post title.
+		drawSceneGlyph(img, scene)
+		drawBakedSceneTitle(img, "subreddit picks")
 	case SceneDidYouKnow:
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "did you know?")
@@ -1625,6 +1633,25 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		// mask-driven pattern used by the Starfleet delta / buddha /
 		// weather icons.
 		drawQuestion(img, cx, cy, c)
+
+	case SceneReddit:
+		// Upvote arrow — a filled equilateral-ish triangle ▲ pointing
+		// up, the universal "this is good" mark on reddit. Rasterised
+		// via fillPolygon in the same dim GruvFgDark used by the other
+		// corner glyphs. Triangle dimensions match the visual weight
+		// of the HN "Y" / TIL lightbulb at the canonical corner anchor.
+		const (
+			triHalfW = 110 // base half-width
+			triH     = 180 // apex-to-base height
+		)
+		// Override the default GruvBgDarker with GruvFgDark so the
+		// arrow reads as the scene's accent rather than ambient decor —
+		// matches the blueprint's "paints the arrow in GruvFgDark" call.
+		fillPolygon(img, []struct{ x, y int }{
+			{cx, cy - triH/2},          // apex (top)
+			{cx + triHalfW, cy + triH/2}, // bottom-right
+			{cx - triHalfW, cy + triH/2}, // bottom-left
+		}, GruvFgDark)
 
 	case SceneTIL:
 		// Lightbulb (idea / new knowledge) — sourced from the Heroicons

@@ -435,6 +435,42 @@ func TestParseTickerList(t *testing.T) {
 	}
 }
 
+// TestParseSubredditList pins the DIVOOM_SUBREDDITS normaliser:
+// whitespace trimmed, leading "r/" (case-insensitive) stripped per
+// entry, names lowercased, empties dropped, unset/whitespace-only
+// returns nil so the scene wire-up in serve.go can drop the scene
+// from the rotation entirely.
+func TestParseSubredditList(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		{"empty returns nil", "", nil},
+		{"whitespace-only returns nil", "   ", nil},
+		{"single bare name", "pcgaming", []string{"pcgaming"}},
+		{"strips r/ prefix", "r/pcgaming", []string{"pcgaming"}},
+		{"strips R/ prefix case-insensitive", "R/PCGaming", []string{"pcgaming"}},
+		{"multi with whitespace + mixed prefixes",
+			" r/pcgaming , 3Dprinting , R/linux_gaming ",
+			[]string{"pcgaming", "3dprinting", "linux_gaming"}},
+		{"drops empty entries", "pcgaming,,,3Dprinting,", []string{"pcgaming", "3dprinting"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseSubredditList(c.env)
+			if len(got) != len(c.want) {
+				t.Fatalf("parseSubredditList(%q) = %v, want %v", c.env, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("parseSubredditList(%q)[%d] = %q, want %q", c.env, i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestMarketsChangeBoth(t *testing.T) {
 	cases := []struct {
 		name string
