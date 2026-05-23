@@ -1154,7 +1154,7 @@ func quoteSceneFromSource(opts QuoteSceneOpts) *scene.Scene {
 		quoteBodyLeft(idSceneSub1, 80, 640, 580, 540),
 	}
 	mounts := []scene.Mount{
-		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBodyFromSource},
+		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vTopQuoteBodyFromSource},
 	}
 	if opts.HasAuthor {
 		elements = append(elements, frame.DispElement{
@@ -1187,7 +1187,7 @@ func quoteSceneMarginalia(opts QuoteSceneOpts) *scene.Scene {
 		quoteBodyLeft(idSceneSub1, 80, 640, 480, 620),
 	}
 	mounts := []scene.Mount{
-		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBodyMarginalia},
+		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vTopQuoteBodyMarginalia},
 	}
 	if opts.HasAuthor {
 		elements = append(elements, frame.DispElement{
@@ -1219,7 +1219,7 @@ func quoteSceneTerminal(opts QuoteSceneOpts) *scene.Scene {
 		quoteBodyLeft(idSceneSub1, 80, 640, 580, 520),
 	}
 	mounts := []scene.Mount{
-		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vCenterQuoteBodyTerminal},
+		{ID: idSceneSub1, Format: pipeAt(1), Geometry: vTopQuoteBodyTerminal},
 	}
 	return &scene.Scene{
 		Name: opts.Name, Weight: opts.Weight, BgPath: opts.BgPath,
@@ -1261,27 +1261,38 @@ func pipeAtUpper(i int) func(raw string) (text, color string) {
 	}
 }
 
-// vCenterQuoteBodyFromSource vertically centres the body inside its
-// from-source track (between the top baked rule at y=535 and the bottom
-// baked rule at y=1125). Mirror of vCenterQuoteBody but with track
-// bounds matching the FromSource chrome.
-func vCenterQuoteBodyFromSource(text string, e frame.DispElement) frame.DispElement {
-	return vCenterInTrack(text, e, 540, 1120, 30)
+// vTopQuoteBodyFromSource pins the body to the top of the from-source
+// track (between the top baked rule at y=535 and the bottom baked
+// rule at y=1125). Top-anchored rather than centred so that short
+// quotes don't drift up and away from the source-label rule above.
+func vTopQuoteBodyFromSource(_ string, e frame.DispElement) frame.DispElement {
+	return vTopInTrack(e, 540, 1120)
 }
 
-// vCenterQuoteBodyMarginalia: track between the top imprint rule at
-// y=525 and the attribution row at y=1130. The drop-cap used to live
-// at the top of this track; with it removed, trackTop lifts from 560
-// to 480 so the body sits higher and the layout doesn't read as a
-// floating block in dead space.
-func vCenterQuoteBodyMarginalia(text string, e frame.DispElement) frame.DispElement {
-	return vCenterInTrack(text, e, 480, 1100, 30)
+// vTopQuoteBodyMarginalia pins the body to the top of the marginalia
+// track. The drop-cap used to live at the top of this track; with it
+// removed, trackTop sits at 480 so the body still starts close to
+// the imprint rule above without floating in dead space.
+func vTopQuoteBodyMarginalia(_ string, e frame.DispElement) frame.DispElement {
+	return vTopInTrack(e, 480, 1100)
 }
 
-// vCenterQuoteBodyTerminal: track between the top baked rule at y=535
-// and the status-bar top rule at y=1140.
-func vCenterQuoteBodyTerminal(text string, e frame.DispElement) frame.DispElement {
-	return vCenterInTrack(text, e, 555, 1135, 30)
+// vTopQuoteBodyTerminal pins the body to the top of the terminal
+// track (between the top baked rule at y=535 and the status-bar top
+// rule at y=1140). Matches the "command output starts at the prompt
+// row, not floating in the middle of the screen" gestalt.
+func vTopQuoteBodyTerminal(_ string, e frame.DispElement) frame.DispElement {
+	return vTopInTrack(e, 555, 1135)
+}
+
+// vTopInTrack anchors a body element at trackTop with full track
+// height. Top-aligned: short quotes still start at the top of the
+// track and run downward, never centred or pushed away from the
+// source-label / shell-prompt that introduces them.
+func vTopInTrack(e frame.DispElement, trackTop, trackBot int) frame.DispElement {
+	e.StartY = trackTop
+	e.Height = trackBot - trackTop
+	return e
 }
 
 // vCenterInTrack centres a short body in the rectangle (trackTop..trackBot),
