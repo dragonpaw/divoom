@@ -109,6 +109,7 @@ const (
 	SceneTwain
 	SceneFortune
 	SceneForecast
+	SceneSeismic
 )
 
 // SceneBackground builds the hero frame and draws the scene's glyph into
@@ -192,6 +193,9 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 	case SceneForecast:
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "next 4 days")
+	case SceneSeismic:
+		drawSceneGlyph(img, scene)
+		drawBakedSceneTitle(img, "seismic activity")
 	case SceneDidYouKnow:
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "did you know?")
@@ -1920,6 +1924,56 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		// (see assets.go). Reads as the dictionary motif for the
 		// Word of the Day scene.
 		drawBook(img, cx, cy, c)
+
+	case SceneSeismic:
+		// Seismograph trace: a hairline baseline running across ~180px
+		// horizontal at cy, one sharp upward spike just left of centre,
+		// an answering downward spike just right of centre, and a short
+		// decaying tail of smaller bumps trailing right. Anchored on
+		// (cx, cy) so it picks up drawSceneGlyph's bottom-right corner
+		// position. All painted in c (SceneGlyphColor) via the existing
+		// drawThickLine primitive so the trace reads at glance distance
+		// against gruvbox-bg-hard.
+		const (
+			baselineHalfW = 90 // ~180px total baseline span
+			spikeUp       = 40
+			spikeDown     = 30
+		)
+		// Waypoints (x, y) from the trace's left endpoint, walking
+		// right. y is relative to the baseline at cy; negative is up.
+		// xs/ys are paired so segment i runs from (xs[i], ys[i]) to
+		// (xs[i+1], ys[i+1]).
+		xs := []int{
+			cx - baselineHalfW,      // 0: left end, on baseline
+			cx - 30,                 // 1: pre-spike approach
+			cx - 22,                 // 2: spike apex (up)
+			cx - 14,                 // 3: returning to baseline
+			cx,                      // 4: back on baseline
+			cx + 8,                  // 5: downward spike apex
+			cx + 16,                 // 6: returning to baseline
+			cx + 30,                 // 7: small aftershock up
+			cx + 40,                 // 8: small aftershock down
+			cx + 55,                 // 9: tiny ripple up
+			cx + 70,                 // 10: settling
+			cx + baselineHalfW,      // 11: right end, on baseline
+		}
+		ys := []int{
+			cy,
+			cy,
+			cy - spikeUp,
+			cy,
+			cy,
+			cy + spikeDown,
+			cy,
+			cy - 14,
+			cy + 10,
+			cy - 6,
+			cy,
+			cy,
+		}
+		for i := 0; i < len(xs)-1; i++ {
+			drawThickLine(img, xs[i], ys[i], xs[i+1], ys[i+1], 3, c)
+		}
 	}
 }
 

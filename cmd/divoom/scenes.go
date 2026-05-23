@@ -1324,11 +1324,12 @@ func vTopQuoteBodyFromSource(_ string, e frame.DispElement) frame.DispElement {
 }
 
 // vTopQuoteBodyMarginalia pins the body to the top of the marginalia
-// track. The drop-cap used to live at the top of this track; with it
-// removed, trackTop sits at 480 so the body still starts close to
-// the imprint rule above without floating in dead space.
+// track. The marginalia chrome bakes a book-name imprint at y=510 and
+// a top rule at y=525, so the body track starts at y=560 to clear
+// both with a small breathing gap — at 480 the body's first line
+// collided with the baked book name.
 func vTopQuoteBodyMarginalia(_ string, e frame.DispElement) frame.DispElement {
-	return vTopInTrack(e, 480, 1100)
+	return vTopInTrack(e, 560, 1100)
 }
 
 // vTopQuoteBodyTerminal pins the body to the top of the terminal
