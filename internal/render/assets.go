@@ -247,6 +247,9 @@ var buddhaPNG []byte
 //go:embed assets/devil.png
 var devilPNG []byte
 
+//go:embed assets/alien.png
+var alienPNG []byte
+
 //go:embed assets/weather/clear.png
 var weatherClearPNG []byte
 

@@ -1505,8 +1505,14 @@ func drawSceneGlyph(img *image.RGBA, scene Scene) {
 // public-API drawSceneGlyph wraps this with the long-standing bottom-
 // right anchor; the three-family quote redesign uses this directly via
 // glyphAnchorFor to move the glyph out from under family chrome.
+// SceneGlyphColor is the canonical paint colour for every scene's
+// corner glyph. Defined as a named constant so per-case overrides
+// can't drift the family's visual weight — every glyph reads at the
+// same darkness against gruvbox-dark-hard.
+var SceneGlyphColor = GruvBgDarker
+
 func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
-	c := GruvBgDarker
+	c := SceneGlyphColor
 
 	switch scene {
 	case SceneMarkets:
@@ -1651,23 +1657,12 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		drawQuestion(img, cx, cy, c)
 
 	case SceneReddit:
-		// Upvote arrow — a filled equilateral-ish triangle ▲ pointing
-		// up, the universal "this is good" mark on reddit. Rasterised
-		// via fillPolygon in the same dim GruvFgDark used by the other
-		// corner glyphs. Triangle dimensions match the visual weight
-		// of the HN "Y" / TIL lightbulb at the canonical corner anchor.
-		const (
-			triHalfW = 110 // base half-width
-			triH     = 180 // apex-to-base height
-		)
-		// Override the default GruvBgDarker with GruvFgDark so the
-		// arrow reads as the scene's accent rather than ambient decor —
-		// matches the blueprint's "paints the arrow in GruvFgDark" call.
-		fillPolygon(img, []struct{ x, y int }{
-			{cx, cy - triH/2},          // apex (top)
-			{cx + triHalfW, cy + triH/2}, // bottom-right
-			{cx - triHalfW, cy + triH/2}, // bottom-left
-		}, GruvFgDark)
+		// Twemoji alien-face mascot — stand-in for the trademarked
+		// reddit Snoo. Same dim SceneGlyphColor and mask-paint
+		// pattern used by the Starfleet delta / buddha / devil
+		// glyphs so every corner glyph in the rotation reads at the
+		// same darkness against gruvbox-dark-hard.
+		drawAlien(img, cx, cy, c)
 
 	case SceneTIL:
 		// Lightbulb (idea / new knowledge) — sourced from the Heroicons
@@ -1996,6 +1991,29 @@ func drawDevil(img *image.RGBA, cx, cy int, c color.RGBA) {
 		devilMask = m
 	})
 	paintMask(img, devilMask, cx, cy, c)
+}
+
+// alienMask is the decoded Twemoji alien-face silhouette PNG (U+1F47D),
+// loaded once on first use. Stands in for the reddit Snoo mascot in the
+// reddit scene — Twemoji is CC BY 4.0 + matches the existing mask-paint
+// pattern; Snoo proper is trademarked.
+var (
+	alienOnce sync.Once
+	alienMask image.Image
+)
+
+// drawAlien paints the alien-face silhouette centred on (cx, cy) in
+// colour c. Same shape as drawDevil / drawBuddha — embedded PNG decoded
+// once, then handed to paintMask.
+func drawAlien(img *image.RGBA, cx, cy int, c color.RGBA) {
+	alienOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(alienPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded alien: %w", err))
+		}
+		alienMask = m
+	})
+	paintMask(img, alienMask, cx, cy, c)
 }
 
 // questionMask is the decoded question-mark silhouette PNG; loaded once
