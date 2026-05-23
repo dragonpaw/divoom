@@ -179,11 +179,14 @@ const hazardHeadlineMaxLen = 50
 // a blank, not as "0%". Using *float64 pointers makes the distinction
 // trivial without an extra raw-JSON pass.
 type currentWeatherResponse struct {
-	CurrentWeather struct {
-		Temperature float64 `json:"temperature"`
-		WeatherCode int     `json:"weathercode"`
-	} `json:"current_weather"`
+	// Open-Meteo's unified `current=` block carries all live fields.
+	// We previously combined `current_weather=true` with `current=...`
+	// but Open-Meteo silently drops the `current=` payload when both
+	// are present, leaving humidity + precipitation_probability empty.
+	// Use a single `current=` query with every field instead.
 	Current struct {
+		Temperature              float64  `json:"temperature_2m"`
+		WeatherCode              int      `json:"weathercode"`
 		RelativeHumidity2m       *float64 `json:"relative_humidity_2m"`
 		PrecipitationProbability *float64 `json:"precipitation_probability"`
 	} `json:"current"`
@@ -241,8 +244,8 @@ func (c *Client) Fetch(ctx context.Context) (string, error) {
 		return "", fcErr
 	}
 
-	temp := int(math.Round(fcResp.CurrentWeather.Temperature))
-	outlook := OutlookFromCode(fcResp.CurrentWeather.WeatherCode)
+	temp := int(math.Round(fcResp.Current.Temperature))
+	outlook := OutlookFromCode(fcResp.Current.WeatherCode)
 	hazardMsg := ""
 
 	// NWS takes top precedence — an active warning trumps both the
@@ -275,8 +278,7 @@ func (c *Client) fetchForecast(ctx context.Context, out *currentWeatherResponse)
 	url := fmt.Sprintf(
 		"https://api.open-meteo.com/v1/forecast"+
 			"?latitude=%s&longitude=%s"+
-			"&current_weather=true"+
-			"&current=relative_humidity_2m,precipitation_probability"+
+			"&current=temperature_2m,weathercode,relative_humidity_2m,precipitation_probability"+
 			"&temperature_unit=%s&timezone=auto",
 		c.lat, c.lon, c.unit,
 	)
