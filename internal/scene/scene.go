@@ -175,9 +175,18 @@ type Driver struct {
 
 	installSeq atomic.Uint64
 
-	pickMu sync.Mutex
-	rng    *rand.Rand
+	pickMu     sync.Mutex
+	rng        *rand.Rand
+	lastShown  map[*Scene]time.Time
 }
+
+// SceneCooldown is the minimum interval before the same scene can be
+// picked again after its last appearance. With 24 scenes and a 3-min
+// rotation, an 18-min cooldown means ~18 scenes are always eligible —
+// rare back-to-back-within-an-hour repeats are gone without making
+// the cooldown so long that weighted-random distribution is broken
+// for the high-weight scenes.
+const SceneCooldown = 18 * time.Minute
 
 // Run picks scenes by weighted random and holds each for its declared
 // duration, forever (until ctx cancelled). Before the first activation,
@@ -194,6 +203,9 @@ func (d *Driver) Run(ctx context.Context) error {
 	if d.rng == nil {
 		d.rng = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0xD1AB10))
 	}
+	if d.lastShown == nil {
+		d.lastShown = make(map[*Scene]time.Time)
+	}
 
 	d.warmup(ctx)
 
@@ -207,6 +219,9 @@ func (d *Driver) Run(ctx context.Context) error {
 		if err := d.activate(ctx, s); err != nil {
 			slog.Error("scene install failed", "scene", s.Name, "err", err)
 		}
+		d.pickMu.Lock()
+		d.lastShown[s] = time.Now()
+		d.pickMu.Unlock()
 		select {
 		case <-ctx.Done():
 			return nil
@@ -254,6 +269,7 @@ func (d *Driver) pick(last *Scene) *Scene {
 	d.pickMu.Lock()
 	defer d.pickMu.Unlock()
 
+	now := time.Now()
 	eligible := func(s *Scene) bool {
 		if s.Weight <= 0 || s == last {
 			return false
@@ -262,6 +278,9 @@ func (d *Driver) pick(last *Scene) *Scene {
 			return false
 		}
 		if !s.isHealthy() {
+			return false
+		}
+		if t, ok := d.lastShown[s]; ok && now.Sub(t) < SceneCooldown {
 			return false
 		}
 		return true
