@@ -10,8 +10,8 @@ moon / ISS, historical events, hand-curated quotes, useless facts, HN
 headlines, and a ~300-deep rotation of typographic cocktail recipe cards
 + a 121-deep curated NASA APOD rotation.
 
-![cocktail · margarita](docs/screenshots/cocktail-margarita.jpg)
-![NASA APOD · noctilucent clouds over Paris](docs/screenshots/nasa-noctilucent.jpg)
+![cocktail · margarita](docs/screenshots/cocktail.jpg)
+![astronomy picture of the day · noctilucent clouds over Paris](docs/screenshots/nasa.jpg)
 
 ## What this is
 
