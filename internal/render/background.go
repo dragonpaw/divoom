@@ -194,9 +194,13 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "next 4 days")
 	case SceneSeismic:
-		drawSceneGlyph(img, scene)
+		// No corner glyph — the seismograph trace fought the commentary
+		// line for the bottom-right quadrant and carried no data of its
+		// own (unlike markets' sparkline, which earns its corner by
+		// charting real numbers). Identity comes from the baked title,
+		// the magnitude caption, and the ruled stats strip below.
 		drawBakedSceneTitle(img, "seismic activity")
-		drawSeismicCaption(img)
+		drawSeismicChrome(img)
 	case SceneDidYouKnow:
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "did you know?")
@@ -696,23 +700,42 @@ func drawNASACredit(img *image.RGBA) {
 	drawLabelLeft(img, rest, face, x+nasaW, baseline, GruvFgDark)
 }
 
-// drawSeismicCaption bakes the "magnitude" caption row directly
-// under the hero number, mirroring github's "lifetime contributions"
-// pattern. With the hero element at y=620 height=220 (bottom y=840)
-// and the stats row at y=880, the caption sits at y=870 baseline —
-// the small dead band between the two. Roboto Condensed Light 24pt
-// GruvFgDark, centred.
-func drawSeismicCaption(img *image.RGBA) {
+// drawSeismicChrome bakes the seismic scene's static chrome: the
+// "magnitude" caption row directly under the hero number, and a pair
+// of hairlines bracketing the stats strip below — mirroring the
+// weather scene's bottom-strip pattern.
+//
+// Hero element occupies y=620..840. The caption sits at y=870 baseline
+// in the dead band beneath it. The stats strip element lives at
+// y=1015..1075, bracketed by hairlines at y=985 and y=1095. The gap
+// between the caption baseline (y=870) and the top hairline (y=985)
+// is the deliberate breathing room separating the hero from the strip.
+// Roboto Condensed Light 24pt GruvFgDark for the caption; 1px
+// GruvFgDark rules for the strip.
+func drawSeismicChrome(img *image.RGBA) {
+	const (
+		colLeft   = 80
+		colRight  = 720
+		stripTopY = 985
+		stripBotY = 1095
+	)
+	draw.Draw(img,
+		image.Rect(colLeft, stripTopY, colRight, stripTopY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+	draw.Draw(img,
+		image.Rect(colLeft, stripBotY, colRight, stripBotY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
+
 	f, err := LoadFont("RobotoCondensed-Light.ttf")
 	if err != nil {
-		slog.Warn("seismic caption: font load failed", "err", err)
+		slog.Warn("seismic chrome: font load failed", "err", err)
 		return
 	}
 	face, err := opentype.NewFace(f, &opentype.FaceOptions{
 		Size: 24, DPI: 72, Hinting: font.HintingFull,
 	})
 	if err != nil {
-		slog.Warn("seismic caption: face init failed", "err", err)
+		slog.Warn("seismic chrome: face init failed", "err", err)
 		return
 	}
 	defer face.Close()
@@ -1984,55 +2007,6 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		// Word of the Day scene.
 		drawBook(img, cx, cy, c)
 
-	case SceneSeismic:
-		// Seismograph trace: a hairline baseline running across ~180px
-		// horizontal at cy, one sharp upward spike just left of centre,
-		// an answering downward spike just right of centre, and a short
-		// decaying tail of smaller bumps trailing right. Anchored on
-		// (cx, cy) so it picks up drawSceneGlyph's bottom-right corner
-		// position. All painted in c (SceneGlyphColor) via the existing
-		// drawThickLine primitive so the trace reads at glance distance
-		// against gruvbox-bg-hard.
-		const (
-			baselineHalfW = 90 // ~180px total baseline span
-			spikeUp       = 40
-			spikeDown     = 30
-		)
-		// Waypoints (x, y) from the trace's left endpoint, walking
-		// right. y is relative to the baseline at cy; negative is up.
-		// xs/ys are paired so segment i runs from (xs[i], ys[i]) to
-		// (xs[i+1], ys[i+1]).
-		xs := []int{
-			cx - baselineHalfW,      // 0: left end, on baseline
-			cx - 30,                 // 1: pre-spike approach
-			cx - 22,                 // 2: spike apex (up)
-			cx - 14,                 // 3: returning to baseline
-			cx,                      // 4: back on baseline
-			cx + 8,                  // 5: downward spike apex
-			cx + 16,                 // 6: returning to baseline
-			cx + 30,                 // 7: small aftershock up
-			cx + 40,                 // 8: small aftershock down
-			cx + 55,                 // 9: tiny ripple up
-			cx + 70,                 // 10: settling
-			cx + baselineHalfW,      // 11: right end, on baseline
-		}
-		ys := []int{
-			cy,
-			cy,
-			cy - spikeUp,
-			cy,
-			cy,
-			cy + spikeDown,
-			cy,
-			cy - 14,
-			cy + 10,
-			cy - 6,
-			cy,
-			cy,
-		}
-		for i := 0; i < len(xs)-1; i++ {
-			drawThickLine(img, xs[i], ys[i], xs[i+1], ys[i+1], 3, c)
-		}
 	}
 }
 

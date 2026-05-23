@@ -34,16 +34,20 @@ func seismicScene(widgets map[string]widget.Widget) *scene.Scene {
 				FontColor: cFg, BgColor: cBgHard,
 			},
 			// Stats row — mono, dim. "<n> events · <km>km <bearing> · <age>".
+			// Lives inside the ruled strip baked by drawSeismicChrome
+			// (hairlines at y=985 and y=1095), mirroring the weather
+			// scene's bottom-strip pattern.
 			{
 				ID: idSceneSub1, Type: "Text",
-				StartX: 80, StartY: 880, Width: 640, Height: 50,
+				StartX: 80, StartY: 1015, Width: 640, Height: 60,
 				Align: 2, FontSize: 32, FontID: fontMono,
 				FontColor: cFgDark, BgColor: cBgHard,
 			},
 			// Commentary — prose-light, dim. Band-keyed caption.
+			// Sits below the ruled strip, above the bottom progress bar.
 			{
 				ID: idSceneSub2, Type: "Text",
-				StartX: 80, StartY: 1080, Width: 640, Height: 60,
+				StartX: 80, StartY: 1110, Width: 640, Height: 60,
 				Align: 2, FontSize: 26, FontID: fontProseLight,
 				FontColor: cFgDark, BgColor: cBgHard,
 			},
