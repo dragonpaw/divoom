@@ -10,7 +10,7 @@ import (
 // quote body + attribution as plain Text elements.
 func babylon5Scene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
-		Name: "babylon5", Title: "Babylon 5", Weight: 20, BgPath: bgBabylon5,
+		Name: "babylon5", Title: "Babylon 5", Weight: WeightInteresting, BgPath: bgBabylon5,
 		Widget:       widgets["babylon5"],
 		Family:       FamilyFromSource,
 		Tagline:      "the last best hope for peace",

@@ -36,7 +36,7 @@ import (
 func issScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "iss",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgISS,
 		Elements: []frame.DispElement{
 			// Sub-satellite dot — single ● glyph at FontSize 44 (≈1.8×

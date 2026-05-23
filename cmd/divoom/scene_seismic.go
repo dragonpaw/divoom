@@ -21,7 +21,7 @@ import (
 func seismicScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "seismic",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgSeismic,
 		Elements: []frame.DispElement{
 			// Hero magnitude — huge mono number, FontColor set by the

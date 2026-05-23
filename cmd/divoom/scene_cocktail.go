@@ -20,7 +20,7 @@ func cocktailScene(_ map[string]widget.Widget) *scene.Scene {
 	walk := newIndexWalker(cocktailPoolSize())
 	return &scene.Scene{
 		Name:   "cocktail",
-		Weight: 20,
+		Weight: WeightInteresting,
 		BgPath: bgCocktailFor(0),
 		BgPathFor: func(_ string) string {
 			return bgCocktailFor(walk())

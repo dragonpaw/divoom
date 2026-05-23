@@ -35,6 +35,16 @@ const (
 	idSceneSub3  = 13
 )
 
+// Base weight tiers for the weighted-random scene rotation. Each scene
+// picks the tier that matches what it IS (live data vs curated whimsy);
+// per-user preferences are layered on top via DIVOOM_PRIORITY_SCENES,
+// which multiplies the chosen tier by PriorityMultiplier.
+const (
+	WeightInteresting   = 20 // curated rotations: quotes, factoids, NASA, cocktail
+	WeightInformational = 40 // live data: weather, forecast, iss, markets, news
+	PriorityMultiplier  = 4  // env-listed user-priority scenes get this factor
+)
+
 // Font IDs on the device. All custom-pushed via adb (see docs/api.md →
 // "Fonts on disk"). Iosevka for digits/symbols, Roboto Condensed for prose.
 const (

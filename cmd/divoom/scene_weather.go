@@ -26,7 +26,7 @@ import (
 func weatherScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "weather",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgWeatherCloudy, // fallback before first cache fill
 		BgPathFor: func(raw string) string {
 			return weatherBgFor(weatherOutlookFrom(raw))

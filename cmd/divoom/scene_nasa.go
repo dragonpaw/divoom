@@ -27,7 +27,7 @@ func nasaScene(_ map[string]widget.Widget) *scene.Scene {
 	walk := newIndexWalker(len(nasaCuratedDates))
 	return &scene.Scene{
 		Name:   "nasa",
-		Weight: 20,
+		Weight: WeightInteresting,
 		BgPath: bgNASAFor(0),
 		BgPathFor: func(_ string) string {
 			return bgNASAFor(walk())

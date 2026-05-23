@@ -18,7 +18,7 @@ import (
 func tilScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "til",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgTIL,
 		Elements: []frame.DispElement{
 			{

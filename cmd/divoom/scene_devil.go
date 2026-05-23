@@ -10,7 +10,7 @@ import (
 // status bar (see quote_family.go).
 func devilScene(widgets map[string]widget.Widget) *scene.Scene {
 	return DictionaryScene(DictionarySceneOpts{
-		Name: "devil", Title: "Devil's Dictionary", Weight: 20, BgPath: bgDevil,
+		Name: "devil", Title: "Devil's Dictionary", Weight: WeightInteresting, BgPath: bgDevil,
 		Widget: widgets["devil"], Style: StylePunchline,
 	})
 }

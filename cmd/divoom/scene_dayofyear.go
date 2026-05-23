@@ -27,7 +27,7 @@ import (
 func dayofyearScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "dayofyear",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgDayOfYear,
 		Elements: []frame.DispElement{
 			// Big NN% headline.

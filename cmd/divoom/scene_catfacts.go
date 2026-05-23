@@ -18,7 +18,7 @@ import (
 func catfactsScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "catfacts",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgCatFacts,
 		Elements: []frame.DispElement{
 			{

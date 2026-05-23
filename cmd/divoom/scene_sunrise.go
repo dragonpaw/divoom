@@ -27,7 +27,7 @@ import (
 func sunriseScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "sunrise",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgSunrise,
 		Elements: []frame.DispElement{
 			// Daylight headline above the arc — large mono, centred,

@@ -10,7 +10,7 @@ import (
 // stepping on Discworld's orange or B5's purple.
 func stoicsScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
-		Name: "stoics", Title: "Stoics", Weight: 20, BgPath: bgStoics,
+		Name: "stoics", Title: "Stoics", Weight: WeightInteresting, BgPath: bgStoics,
 		Widget:       widgets["stoics"],
 		Family:       FamilyMarginalia,
 		Tagline:      "memento mori",

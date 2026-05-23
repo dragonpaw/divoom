@@ -28,7 +28,7 @@ func forecastScene(widgets map[string]widget.Widget) *scene.Scene {
 	}
 	return &scene.Scene{
 		Name:   "forecast",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgForecast,
 		Elements: []frame.DispElement{
 			row(idSceneMain, 560),

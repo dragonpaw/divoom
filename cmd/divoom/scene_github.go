@@ -25,7 +25,7 @@ import (
 func githubScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "github",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgGitHub,
 		Elements: []frame.DispElement{
 			// Hero: lifetime contributions, big mono. cGreen when

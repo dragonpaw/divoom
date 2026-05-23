@@ -136,28 +136,20 @@ func runServe(ctx context.Context) error {
 	scenes := buildScenes(widgets)
 
 	// Priority bump: scenes named in DIVOOM_PRIORITY_SCENES get their
-	// weight set to priorityWeight so they fire ~2× more often than
-	// the default-weight scenes — informational / live-data scenes
-	// (weather, sunrise, moon, ISS, etc.) earn more airtime than the
-	// curated whimsy (quote families, cocktail, NASA). Default list
-	// covers the obvious informational set; the env var overrides it
-	// when set. Unknown names are logged and ignored — a typo
-	// shouldn't crash startup.
+	// existing tier weight multiplied by PriorityMultiplier — layered
+	// on top of the per-scene tier (informational vs interesting) so a
+	// user-priority informational scene fires 160:20 vs the default
+	// interesting baseline. Unset/empty applies no bumps; the tier
+	// weights are the baseline. Unknown names are logged and ignored —
+	// a typo shouldn't crash startup.
 	priorityNames := parsePriorityScenes(os.Getenv("DIVOOM_PRIORITY_SCENES"))
-	if priorityNames == nil {
-		priorityNames = []string{
-			"weather", "forecast", "sunrise", "moonphase",
-			"iss", "dayofyear", "github", "hn", "reddit",
-			"markets", "seismic", "onthisday", "til",
-		}
-	}
-	const priorityWeight = 40
 	for _, name := range priorityNames {
 		bumped := false
 		for _, s := range scenes {
 			if s.Name == name {
-				s.Weight = priorityWeight
-				slog.Info("priority scene weight bumped", "scene", name, "weight", priorityWeight)
+				s.Weight *= PriorityMultiplier
+				slog.Info("priority scene weight multiplied",
+					"scene", name, "factor", PriorityMultiplier, "new_weight", s.Weight)
 				bumped = true
 				break
 			}

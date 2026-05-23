@@ -25,7 +25,7 @@ import (
 func marketsScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "markets",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgMarkets,
 		Elements: []frame.DispElement{
 			// Ticker symbol — left-aligned, ticker-coloured (cYellow as a

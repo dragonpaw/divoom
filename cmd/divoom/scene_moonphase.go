@@ -21,7 +21,7 @@ import (
 func moonphaseScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:      "moonphase",
-		Weight:    20,
+		Weight:    WeightInformational,
 		BgPath:    moonBackgrounds[7], // fallback before first cache fill
 		BgPathFor: moonBgPathFor,
 		Elements: []frame.DispElement{

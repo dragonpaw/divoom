@@ -20,7 +20,7 @@ import (
 func hnScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "hn",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgHN,
 		Elements: []frame.DispElement{
 			// Story title — left-aligned hero. Mounts to pipeAt(1).

@@ -9,7 +9,7 @@ import (
 // into the bg (the stardate ticks each `divoom push`).
 func startrekScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
-		Name: "startrek", Title: "Star Trek", Weight: 20, BgPath: bgStarTrek,
+		Name: "startrek", Title: "Star Trek", Weight: WeightInteresting, BgPath: bgStarTrek,
 		Widget:       widgets["startrek"],
 		Family:       FamilyFromSource,
 		Tagline:      "to boldly go where no one has gone before",

@@ -20,7 +20,7 @@ import (
 func onthisdayScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "onthisday",
-		Weight: 20,
+		Weight: WeightInformational,
 		BgPath: bgOnThisDay,
 		Elements: []frame.DispElement{
 			// Year accent — big mono, gruvbox orange, left-aligned.
