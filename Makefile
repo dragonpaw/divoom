@@ -14,7 +14,11 @@ STACK_NAME           ?= divoom
 
 .PHONY: all build login push deploy stacks test vet lint fmt run probe render-out push-frame
 
-all: build push deploy
+# Default — ship both halves: deploy the NAS container stack (which
+# transitively builds + pushes the image) and adb-push fresh scene
+# bgs + fonts to the frame. push-frame depends on a USB-attached
+# device; run `make deploy` alone from a host without that.
+all: deploy push-frame
 
 build:
 	podman build -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
