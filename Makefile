@@ -12,7 +12,7 @@ PORTAINER_ENDPOINT   ?= 1
 PORTAINER_API_KEY    ?= $(or $(PORTAINER_TOKEN),$(shell cat $(HOME)/.config/divoom/portainer-key 2>/dev/null))
 STACK_NAME           ?= divoom
 
-.PHONY: all build login push deploy stacks test vet lint fmt run probe render-out
+.PHONY: all build login push deploy stacks test vet lint fmt run probe render-out push-frame
 
 all: build push deploy
 
@@ -110,3 +110,11 @@ probe:
 # Render every scene background JPG to ./dist/scenes/ for inspection.
 render-out:
 	go run ./cmd/divoom render
+
+# Push scene backgrounds + custom fonts to the frame via adb (USB host
+# only — the NAS serve container can't do this). After any scene
+# change, render-code change, or factory reset, run this from the
+# dev box. The `push` target name is taken by the GHCR image push;
+# this is the on-device push.
+push-frame:
+	go run ./cmd/divoom push
