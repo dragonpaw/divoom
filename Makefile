@@ -104,16 +104,23 @@ lint:
 fmt:
 	gofmt -w .
 
+# `withenv` sources .env into the recipe shell so locally-running
+# subcommands (serve / probe / render / push-frame) see the same
+# env vars `make deploy` injects into the Portainer stack — notably
+# NASA_API_KEY, GITHUB_TOKEN, WORDNIK_API_KEY. Recipes invoke it
+# with $(withenv) at the front of the command line.
+withenv = set -a; [ -f $(ENV_FILE) ] && . ./$(ENV_FILE); set +a;
+
 # Run the daemon locally against the configured frame.
 run:
-	go run ./cmd/divoom serve
+	$(withenv) go run ./cmd/divoom serve
 
 probe:
-	go run ./cmd/divoom probe
+	$(withenv) go run ./cmd/divoom probe
 
 # Render every scene background JPG to ./dist/scenes/ for inspection.
 render-out:
-	go run ./cmd/divoom render
+	$(withenv) go run ./cmd/divoom render
 
 # Push scene backgrounds + custom fonts to the frame via adb (USB host
 # only — the NAS serve container can't do this). After any scene
@@ -121,4 +128,4 @@ render-out:
 # dev box. The `push` target name is taken by the GHCR image push;
 # this is the on-device push.
 push-frame:
-	go run ./cmd/divoom push
+	$(withenv) go run ./cmd/divoom push
