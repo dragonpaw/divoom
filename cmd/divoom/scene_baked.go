@@ -160,9 +160,9 @@ func bakeOneNASAImage(ctx context.Context, apiKey, date string) ([]byte, error) 
 		return nil, fmt.Errorf("apod %s has no image url", date)
 	}
 
-	photo, err := fetchImage(ctx, imgURL)
+	photo, err := loadCachedAPODImage(ctx, date, imgURL)
 	if err != nil {
-		return nil, fmt.Errorf("download apod image: %w", err)
+		return nil, fmt.Errorf("load apod image: %w", err)
 	}
 
 	bgBytes, err := render.SceneBackground(render.SceneNASA, render.FormatJPEG, time.Now())
@@ -190,7 +190,15 @@ func bakeOneNASAImage(ctx context.Context, apiKey, date string) ([]byte, error) 
 // with Retry-After (sleeps then retries up to nasaRateLimitRetries
 // times) — needed for the 123-image push run which can otherwise burn
 // through the hourly quota mid-bake.
+//
+// Successful responses are cached to disk (one JSON per date under
+// apodCacheDir) so subsequent pushes skip the network entirely. APOD
+// historical entries don't change once published, so the cache has
+// no TTL; delete the cache dir manually if you ever need to refetch.
 func fetchAPOD(ctx context.Context, apiKey, date string) (*nasaAPODResponse, error) {
+	if cached, ok := readCachedAPOD(date); ok {
+		return cached, nil
+	}
 	const nasaRateLimitRetries = 4
 	url := nasaAPIBase + "?api_key=" + apiKey
 	if date != "" {
@@ -221,16 +229,116 @@ func fetchAPOD(ctx context.Context, apiKey, date string) (*nasaAPODResponse, err
 			}
 			continue
 		}
-		defer resp.Body.Close()
 		if resp.StatusCode/100 != 2 {
+			resp.Body.Close()
 			return nil, fmt.Errorf("http %d", resp.StatusCode)
 		}
-		var body nasaAPODResponse
-		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		raw, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
 			return nil, err
 		}
+		var body nasaAPODResponse
+		if err := json.Unmarshal(raw, &body); err != nil {
+			return nil, err
+		}
+		writeCachedAPOD(date, raw)
 		return &body, nil
 	}
+}
+
+// apodCacheDir returns the on-disk directory for cached APOD JSON +
+// image bodies (e.g. ~/.cache/divoom/apod/). Created on first use.
+// On any environment-level failure (no home dir, can't create) the
+// function returns "" so callers fall through to the live fetch
+// path — caching is a speedup, never a correctness requirement.
+func apodCacheDir() string {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	dir := base + "/divoom/apod"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return dir
+}
+
+// readCachedAPOD returns the cached APOD response for date when one
+// exists on disk. The ok bool is false on miss, on read failure, or
+// on JSON parse failure — in all cases the caller refetches.
+func readCachedAPOD(date string) (*nasaAPODResponse, bool) {
+	dir := apodCacheDir()
+	if dir == "" || date == "" {
+		return nil, false
+	}
+	raw, err := os.ReadFile(dir + "/" + date + ".json")
+	if err != nil {
+		return nil, false
+	}
+	var body nasaAPODResponse
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, false
+	}
+	return &body, true
+}
+
+// writeCachedAPOD stores the raw JSON response for date. Errors are
+// logged but never propagated — failure to cache shouldn't fail the
+// bake (the in-memory response is already decoded and usable).
+func writeCachedAPOD(date string, raw []byte) {
+	dir := apodCacheDir()
+	if dir == "" || date == "" {
+		return
+	}
+	if err := os.WriteFile(dir+"/"+date+".json", raw, 0o644); err != nil {
+		slog.Warn("apod cache write failed", "date", date, "err", err)
+	}
+}
+
+// loadCachedAPODImage returns the decoded APOD photo for date, using
+// the on-disk cache when available. On cache miss the image is
+// downloaded from imgURL, written to the cache, and decoded.
+func loadCachedAPODImage(ctx context.Context, date, imgURL string) (image.Image, error) {
+	dir := apodCacheDir()
+	cachePath := ""
+	if dir != "" && date != "" {
+		cachePath = dir + "/" + date + ".img"
+		if raw, err := os.ReadFile(cachePath); err == nil {
+			if img, _, derr := image.Decode(bytes.NewReader(raw)); derr == nil {
+				return img, nil
+			}
+			// Corrupt cache entry — fall through to re-download.
+			slog.Warn("apod cached image failed to decode; refetching", "date", date)
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imgURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: httpFetchTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("http %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if cachePath != "" {
+		if err := os.WriteFile(cachePath, raw, 0o644); err != nil {
+			slog.Warn("apod image cache write failed", "date", date, "err", err)
+		}
+	}
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return img, nil
 }
 
 // retryAfterDuration parses an HTTP Retry-After header into a sleep
