@@ -33,10 +33,6 @@ const (
 	idSceneSub1  = 11
 	idSceneSub2  = 12
 	idSceneSub3  = 13
-	idSceneSub4  = 14
-	idSceneSub5  = 15
-	idSceneSub6  = 16
-	idSceneSub7  = 17
 )
 
 // Font IDs on the device. All custom-pushed via adb (see docs/api.md →

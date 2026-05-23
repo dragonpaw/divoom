@@ -168,6 +168,17 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		obs := rand.IntN(999) + 1
 		inst := catfactsInstitutions[rand.IntN(len(catfactsInstitutions))]
 		DrawCatfactsChrome(img, obs, inst)
+	case SceneGitHub:
+		// GitHub activity card chrome: baked "GitHub" title at the
+		// canonical y=480 row, "lifetime contributions" caption under
+		// the hero number, and "total PRs" / "open" / "years on
+		// GitHub" column labels under the stat-tile row. Baked rather
+		// than carried as device Text elements because the scene's
+		// dynamic numbers (hero + three stat values) already eat 4 of
+		// the 6 Text slots; the labels would push the layout over the
+		// per-type cap and silently get dropped on-device.
+		drawSceneGlyph(img, scene)
+		drawGitHubChrome(img)
 	case SceneCocktail:
 		// No scene glyph — the cocktail scene's body is painted at
 		// `divoom push` time by bakeCocktailBackground as a typographic
@@ -609,6 +620,50 @@ func drawTILChrome(img *image.RGBA) {
 		}
 	} else {
 		slog.Warn("til chrome: attribution font load failed", "err", err)
+	}
+}
+
+// drawGitHubChrome bakes the GitHub scene's static chrome: title row,
+// hero caption, and three stat-column labels. All five lines used to
+// be device Text elements; they're baked here so the scene's four
+// dynamic numbers (lifetime contributions + total PRs + open PRs +
+// years) fit under the device's 6-Text cap.
+//
+// Layout matches the scene's element coordinates in scene_github.go:
+//
+//	y=505 baseline   "GitHub"               sceneTitle position
+//	y=735 baseline   "lifetime contributions"  caption under hero
+//	y=965 baseline   "total PRs" / "open" / "years on GitHub"  stat-column labels
+//
+// All baked in Roboto Condensed Light, cFgDark, matching the
+// sceneTitle / caption conventions used elsewhere.
+func drawGitHubChrome(img *image.RGBA) {
+	f, err := LoadFont("RobotoCondensed-Light.ttf")
+	if err != nil {
+		slog.Warn("github chrome: font load failed", "err", err)
+		return
+	}
+	mkFace := func(size int) (font.Face, error) {
+		return opentype.NewFace(f, &opentype.FaceOptions{
+			Size: float64(size), DPI: 72, Hinting: font.HintingFull,
+		})
+	}
+	if face, err := mkFace(26); err == nil {
+		drawLabelCentered(img, "GitHub", face, CanvasW/2, 505, GruvFgDark)
+		face.Close()
+	}
+	if face, err := mkFace(24); err == nil {
+		drawLabelCentered(img, "lifetime contributions", face, CanvasW/2, 735, GruvFgDark)
+		face.Close()
+	}
+	if face, err := mkFace(22); err == nil {
+		// Match scene_github.go stat-column centres at StartX + W/2:
+		// col1 = 40..280 (cx=160), col2 = 280..520 (cx=400),
+		// col3 = 520..760 (cx=640).
+		drawLabelCentered(img, "total PRs", face, 160, 965, GruvFgDark)
+		drawLabelCentered(img, "open", face, 400, 965, GruvFgDark)
+		drawLabelCentered(img, "years on GitHub", face, 640, 965, GruvFgDark)
+		face.Close()
 	}
 }
 
