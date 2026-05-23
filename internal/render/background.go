@@ -129,6 +129,12 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// so the frame still renders. Production callers use
 		// SceneMoonphaseBackground to pick the right variant.
 		drawMoonDisc(img, 7)
+	case SceneHN:
+		// HN scene chrome: "HACKER NEWS" wordmark + orange rule under
+		// it + dim footer rule above the metadata row. The Y glyph in
+		// the bottom-right corner stays as the wordmark's mirror.
+		drawHNChrome(img)
+		drawSceneGlyph(img, scene)
 	default:
 		drawSceneGlyph(img, scene)
 	}
@@ -407,6 +413,41 @@ func glyphAnchorFor(family QuoteFamily) (cx, cy int) {
 	default:
 		return CanvasW - 180, CanvasH - 240
 	}
+}
+
+// drawHNChrome bakes the HN scene's brand chrome: the "HACKER NEWS"
+// wordmark in orange near the top of the body area, a 2px orange rule
+// directly under it as a brand-color separator, and a 1px dim rule at
+// y=1140 separating the body from the metadata footer. The Y glyph in
+// the bottom-right corner is painted separately by drawSceneGlyph.
+func drawHNChrome(img *image.RGBA) {
+	const (
+		left          = 80
+		right         = CanvasW - 80
+		wordmarkBase  = 510 // baseline for the "HACKER NEWS" wordmark
+		brandRuleY    = 540 // top of the 2px orange separator
+		brandRuleH    = 2
+		footerRuleY   = 1140 // 1px dim rule above the metadata footer
+	)
+	if f, err := LoadFont("RobotoCondensed-Light.ttf"); err == nil {
+		face, err := opentype.NewFace(f, &opentype.FaceOptions{
+			Size: 32, DPI: 72, Hinting: font.HintingFull,
+		})
+		if err == nil {
+			defer face.Close()
+			drawLabelLeft(img, "HACKER NEWS", face, left, wordmarkBase, GruvOrange)
+		} else {
+			slog.Warn("hn chrome: face init failed", "err", err)
+		}
+	} else {
+		slog.Warn("hn chrome: font load failed", "err", err)
+	}
+	// Orange brand-color separator under the wordmark (2px).
+	draw.Draw(img, image.Rect(left, brandRuleY, right, brandRuleY+brandRuleH),
+		&image.Uniform{GruvOrange}, image.Point{}, draw.Src)
+	// Dim footer rule (1px) above the metadata footer.
+	draw.Draw(img, image.Rect(left, footerRuleY, right, footerRuleY+1),
+		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
 }
 
 // drawFromSourceChrome bakes the in-universe header strip: Header on the

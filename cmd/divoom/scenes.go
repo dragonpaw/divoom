@@ -1248,6 +1248,49 @@ func fitDictionaryBodyTerminal(text string, e frame.DispElement) frame.DispEleme
 	return e
 }
 
+// --- HN formatters ---
+//
+// Widget output is 8 pipe segments: "Hacker News|title|domain|summary|
+// score|author|age|comments". hnFooter composes the bottom-row metadata
+// from segments 4-7 (score, author, age, comments) into a single mono
+// line. Robust to partial data — missing pieces are dropped rather
+// than rendered as literal punctuation gaps.
+
+// hnFooter composes the metadata footer "▲ <score>  by <author>  ·
+// <age>  ·  <comments> comments" from the widget's 4..7 segments,
+// omitting any piece that's empty so partial data doesn't produce
+// "▲   by   ·   ·   comments". Returns ("", "") on a malformed raw
+// string; the scene's AllowEmpty mount keeps the element blank in
+// that case.
+func hnFooter(raw string) (text, color string) {
+	parts := strings.Split(raw, "|")
+	if len(parts) < 8 {
+		return "", ""
+	}
+	score := strings.TrimSpace(parts[4])
+	author := strings.TrimSpace(parts[5])
+	age := strings.TrimSpace(parts[6])
+	comments := strings.TrimSpace(parts[7])
+
+	byline := "by " + author
+	if author == "" {
+		byline = "by unknown"
+	}
+	var segs []string
+	if score != "" {
+		segs = append(segs, "▲ "+score+"  "+byline)
+	} else {
+		segs = append(segs, byline)
+	}
+	if age != "" {
+		segs = append(segs, age)
+	}
+	if comments != "" && comments != "0" {
+		segs = append(segs, comments+" comments")
+	}
+	return strings.Join(segs, "  ·  "), ""
+}
+
 // --- moon formatters ---
 
 // moonPhaseAndIllum renders the combined "<Phase Name> · <illum>%" row

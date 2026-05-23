@@ -12,7 +12,9 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	neturl "net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +28,16 @@ const userAgent = "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)"
 // the configured keywords (case-insensitive substring). Returns the
 // highest-ranked match, augmented with the article's og:description (or
 // equivalent meta summary) when one can be fetched cheaply.
+//
+// Output format is an 8-segment pipe-delimited string:
+//
+//	"Hacker News|<title>|<domain>|<summary>|<score>|<author>|<age>|<comments>"
+//
+// where <domain> is the URL host with a leading "www." stripped (empty
+// for Ask HN / Show HN self-posts), <age> is humanised relative to
+// item.time (e.g. "47m", "3h", "1d"), and <comments> is item.descendants
+// (HN's total-comments-including-replies field). All fields except
+// <title> may be empty for partial / unusual stories.
 type HN struct {
 	Keywords []string
 	// Limit caps how many top stories we'll inspect; the firebase API
@@ -70,10 +82,14 @@ func (h *HN) remember(id int64) {
 }
 
 type hnStory struct {
-	ID    int64
-	Title string
-	URL   string
-	Text  string
+	ID          int64
+	Title       string
+	URL         string
+	Text        string
+	Score       int
+	By          string
+	Time        int64 // Unix seconds (HN item.time)
+	Descendants int   // total comments including replies
 }
 
 // recentHistory is how many recently-shown story IDs we remember and
@@ -97,10 +113,14 @@ func (h *HN) Fetch(ctx context.Context) (string, error) {
 	var matched []hnStory
 	for _, id := range ids {
 		var item struct {
-			Title string `json:"title"`
-			Type  string `json:"type"`
-			URL   string `json:"url"`
-			Text  string `json:"text"`
+			Title       string `json:"title"`
+			Type        string `json:"type"`
+			URL         string `json:"url"`
+			Text        string `json:"text"`
+			Score       int    `json:"score"`
+			By          string `json:"by"`
+			Time        int64  `json:"time"`
+			Descendants int    `json:"descendants"`
 		}
 		url := fmt.Sprintf("https://hacker-news.firebaseio.com/v0/item/%d.json", id)
 		if err := h.getJSON(ctx, url, &item); err != nil {
@@ -112,7 +132,16 @@ func (h *HN) Fetch(ctx context.Context) (string, error) {
 		if !matches(item.Title, h.Keywords) {
 			continue
 		}
-		matched = append(matched, hnStory{ID: id, Title: item.Title, URL: item.URL, Text: item.Text})
+		matched = append(matched, hnStory{
+			ID:          id,
+			Title:       item.Title,
+			URL:         item.URL,
+			Text:        item.Text,
+			Score:       item.Score,
+			By:          item.By,
+			Time:        item.Time,
+			Descendants: item.Descendants,
+		})
 	}
 	if len(matched) == 0 {
 		return "", fmt.Errorf("no HN story in top %d matched keywords", len(ids))
@@ -136,11 +165,64 @@ func (h *HN) Fetch(ctx context.Context) (string, error) {
 	h.mu.Unlock()
 
 	summary := h.summarise(ctx, picked.URL, picked.Text)
-	body := picked.Title
-	if summary != "" {
-		body = picked.Title + " — " + summary
+	domain := hnDomain(picked.URL)
+	score := ""
+	if picked.Score > 0 {
+		score = strconv.Itoa(picked.Score)
 	}
-	return "Hacker News|" + body, nil
+	comments := ""
+	if picked.Descendants > 0 {
+		comments = strconv.Itoa(picked.Descendants)
+	}
+	age := ""
+	if picked.Time > 0 {
+		age = humanizeHNAge(time.Since(time.Unix(picked.Time, 0)))
+	}
+	// Order: title | domain | summary | score | author | age | comments.
+	return strings.Join([]string{
+		"Hacker News",
+		picked.Title,
+		domain,
+		summary,
+		score,
+		picked.By,
+		age,
+		comments,
+	}, "|"), nil
+}
+
+// hnDomain extracts the bare host from a story URL, stripping a leading
+// "www.". Returns "" for empty / unparseable URLs (Ask HN, Show HN self-
+// posts have no URL); the scene mounts the domain element with
+// AllowEmpty so a blank value renders as nothing rather than "—".
+func hnDomain(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := neturl.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	host := strings.ToLower(u.Host)
+	host = strings.TrimPrefix(host, "www.")
+	return host
+}
+
+// humanizeHNAge formats a positive duration the way HN's frontpage does:
+// "<1m" under a minute, "Nm" under an hour, "Nh" under a day, else "Nd".
+// Negative / zero durations (clock skew, future timestamps) clamp to
+// "<1m" — the frontpage never shows negative ages.
+func humanizeHNAge(d time.Duration) string {
+	if d < time.Minute {
+		return "<1m"
+	}
+	if d < time.Hour {
+		return strconv.Itoa(int(d/time.Minute)) + "m"
+	}
+	if d < 24*time.Hour {
+		return strconv.Itoa(int(d/time.Hour)) + "h"
+	}
+	return strconv.Itoa(int(d/(24*time.Hour))) + "d"
 }
 
 // summarise returns a short description of the linked article, or "" if

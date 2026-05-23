@@ -111,6 +111,53 @@ func TestWeatherHumidityAndRain(t *testing.T) {
 	}
 }
 
+// TestHNFooter covers every dropout the formatter has to handle: all
+// fields present, score missing (drop "▲ N" lead), comments "0" / blank
+// (drop the comments segment), author blank (fall back to "unknown"),
+// all metadata missing (still produces a sensible byline). Pins the
+// glue characters so the rendered footer stays consistent.
+func TestHNFooter(t *testing.T) {
+	raw := func(score, author, age, comments string) string {
+		return "Hacker News|t|d|s|" + score + "|" + author + "|" + age + "|" + comments
+	}
+	cases := []struct {
+		name, in, want string
+	}{
+		{"all present",
+			raw("412", "patio11", "3h", "187"),
+			"▲ 412  by patio11  ·  3h  ·  187 comments"},
+		{"score missing",
+			raw("", "patio11", "3h", "187"),
+			"by patio11  ·  3h  ·  187 comments"},
+		{"comments zero",
+			raw("412", "patio11", "3h", "0"),
+			"▲ 412  by patio11  ·  3h"},
+		{"comments blank",
+			raw("412", "patio11", "3h", ""),
+			"▲ 412  by patio11  ·  3h"},
+		{"author missing",
+			raw("412", "", "3h", "187"),
+			"▲ 412  by unknown  ·  3h  ·  187 comments"},
+		{"all missing",
+			raw("", "", "", ""),
+			"by unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := hnFooter(tc.in)
+			if got != tc.want {
+				t.Errorf("hnFooter = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	// Defensive: a malformed raw (too few segments) returns "" so the
+	// AllowEmpty mount leaves the footer blank rather than rendering
+	// "—" or partial garbage.
+	if got, _ := hnFooter("Hacker News|title|domain"); got != "" {
+		t.Errorf("hnFooter(short) = %q, want empty", got)
+	}
+}
+
 // TestSunriseTickX pins the dynamic-tick math: before-sunrise clamps to
 // the left edge, after-sunset clamps to the right edge, and intermediate
 // times interpolate proportionally along the arc. The arc runs x=80→720
