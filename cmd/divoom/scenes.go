@@ -75,6 +75,7 @@ const (
 	bgFortune    = "/userdata/wallclock_bg_fortune.jpg"
 	bgReddit     = "/userdata/wallclock_bg_reddit.jpg"
 	bgForecast   = "/userdata/wallclock_bg_forecast.jpg"
+	bgSeismic    = "/userdata/wallclock_bg_seismic.jpg"
 
 	// One bg per weather outlook so the icon in the bottom-right corner
 	// matches the current condition. Selected at activation time via
@@ -449,6 +450,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 		cocktailScene(widgets),
 		easterScene(widgets),
 		issScene(widgets),
+		seismicScene(widgets),
 	}
 	if widgets["github"] != nil {
 		scenes = append(scenes, githubScene(widgets))
@@ -1981,4 +1983,140 @@ func pipeAtRaw(raw string, i int) string {
 		return ""
 	}
 	return parts[i]
+}
+
+// --- seismic formatters ---
+//
+// Widget pipe shape: "<mag>|<count>|<dist_km>|<bearing>|<age>" with the
+// no-event sentinel "0.0|0|||". The seismic scene installs three Text
+// elements driven by these formatters: the hero magnitude reading, a
+// one-line stats row, and a band-keyed commentary line.
+
+// seismicCommentary maps a notability band to a small pool of caption
+// lines. Selection is hash-pinned to the 5-minute widget cache window
+// (see seismicCommentaryFor) so the caption stays stable across scene
+// activations within one fetch window but rotates as new data lands.
+var seismicCommentaryPool = map[string][]string{
+	"none": {
+		"no measurable activity (the plates are sleeping)",
+		"all quiet on the regional front",
+		"nothing detected. assume the cat is suspicious",
+	},
+	"micro": {
+		"minor shake — picture frames may need straightening",
+		"the cat noticed first, as is tradition",
+		"barely felt. the wine glasses are unmoved",
+	},
+	"light": {
+		"felt by most indoors — the cat is now under the couch",
+		"a notable jiggle. perhaps check the high shelves",
+		"enough to interrupt a conversation. briefly",
+	},
+	"moderate": {
+		"moderate event — inspect bookshelves at leisure",
+		"the kind of shake people text each other about",
+		"non-trivial. the houseplants have opinions",
+	},
+	"strong": {
+		"significant event — see USGS for the full story",
+		"the plates have asserted themselves. consult official channels",
+		"this one warrants more than a deadpan caption",
+	},
+}
+
+// seismicBandFor maps a magnitude reading to a notability band name.
+// Boundaries follow USGS public-impact tiers: M<2.5 is "none" (below
+// the feed threshold, so this is the count=0 sentinel band); 2.5..3.9
+// micro; 4.0..4.9 light; 5.0..5.9 moderate; ≥6.0 strong.
+func seismicBandFor(mag float64) string {
+	switch {
+	case mag < 2.5:
+		return "none"
+	case mag < 4.0:
+		return "micro"
+	case mag < 5.0:
+		return "light"
+	case mag < 6.0:
+		return "moderate"
+	default:
+		return "strong"
+	}
+}
+
+// seismicBandColor maps a magnitude to its gruvbox accent. Mirrors the
+// band ladder above one-to-one: cFgDark for none (below-threshold /
+// no events), cYellow for micro, cOrange for light, cRed for moderate,
+// cPurple for strong. The chroma rises with notability so the hero
+// row's colour alone signals "how seriously to take this reading".
+func seismicBandColor(mag float64) string {
+	switch {
+	case mag < 2.5:
+		return cFgDark
+	case mag < 4.0:
+		return cYellow
+	case mag < 5.0:
+		return cOrange
+	case mag < 6.0:
+		return cRed
+	default:
+		return cPurple
+	}
+}
+
+// seismicMagnitude renders the hero magnitude reading. When the count
+// segment is zero (no qualifying events in the 24h window) the row
+// collapses to an em-dash in dim — "M 0.0" would read as a real but
+// trivial event rather than "nothing happened".
+func seismicMagnitude(raw string) (text, color string) {
+	if pipeAtRaw(raw, 1) == "0" {
+		return "—", cFgDark
+	}
+	mag, err := strconv.ParseFloat(pipeAtRaw(raw, 0), 64)
+	if err != nil {
+		return "—", cFgDark
+	}
+	return fmt.Sprintf("%.1f", mag), seismicBandColor(mag)
+}
+
+// seismicStats renders the one-line "<count> events · <dist>km
+// <bearing> · <age>" stats row. The no-event case (count=0) collapses
+// to a single "no events in 24h" line so the row reads as a status
+// rather than a malformed reading.
+func seismicStats(raw string) (text, color string) {
+	count := pipeAtRaw(raw, 1)
+	if count == "0" || count == "" {
+		return "no events in 24h", cFgDark
+	}
+	dist := pipeAtRaw(raw, 2)
+	bearing := pipeAtRaw(raw, 3)
+	age := pipeAtRaw(raw, 4)
+	noun := "events"
+	if count == "1" {
+		noun = "event"
+	}
+	return fmt.Sprintf("%s %s · %skm %s · %s",
+		count, noun, dist, bearing, age), cFgDark
+}
+
+// seismicCommentary picks one caption from the band's pool, hash-pinned
+// to the current 5-minute window so the line stays stable within one
+// widget cache cycle. now.Unix()/300 mod pool length is the same
+// pattern other scenes use for pool rotation across fetch windows.
+func seismicCommentary(raw string) (text, color string) {
+	band := "none"
+	if pipeAtRaw(raw, 1) != "0" {
+		mag, err := strconv.ParseFloat(pipeAtRaw(raw, 0), 64)
+		if err == nil {
+			band = seismicBandFor(mag)
+		}
+	}
+	pool := seismicCommentaryPool[band]
+	if len(pool) == 0 {
+		return "", cFgDark
+	}
+	idx := int(time.Now().Unix()/300) % len(pool)
+	if idx < 0 {
+		idx = -idx
+	}
+	return pool[idx], cFgDark
 }

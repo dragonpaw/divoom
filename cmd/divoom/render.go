@@ -91,6 +91,9 @@ func runRender(args []string) error {
 		{name: "scene-forecast", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneForecast, render.FormatJPEG, now)
 		}},
+		{name: "scene-seismic", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneSeismic, render.FormatJPEG, now)
+		}},
 	}
 	// Quote-family scenes — baked chrome per family (see quote_family.go).
 	for _, q := range quoteSceneRegistry {

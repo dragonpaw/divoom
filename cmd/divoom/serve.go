@@ -19,6 +19,7 @@ import (
 	githubw "github.com/dragonpaw/divoom/internal/widget/github"
 	"github.com/dragonpaw/divoom/internal/widget/news"
 	"github.com/dragonpaw/divoom/internal/widget/quotes"
+	"github.com/dragonpaw/divoom/internal/widget/seismic"
 	"github.com/dragonpaw/divoom/internal/widget/sky"
 	"github.com/dragonpaw/divoom/internal/widget/weather"
 	"github.com/dragonpaw/divoom/internal/widget/wikipedia"
@@ -107,6 +108,7 @@ func runServe(ctx context.Context) error {
 		// Image DispElement URLs is the reason.
 		"onthisday":  wikipedia.NewOnThisDay(),
 		"iss":        sky.NewISS("37.9358", "-122.3477"),
+		"seismic":    seismic.New("37.9358", "-122.3477"),
 	}
 
 	// GitHub scene is opt-in via env vars. Both must be set: without the
@@ -235,6 +237,7 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneTIL, render.FormatJPEG, now) }, bgTIL},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneReddit, render.FormatJPEG, now) }, bgReddit},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneForecast, render.FormatJPEG, now) }, bgForecast},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneSeismic, render.FormatJPEG, now) }, bgSeismic},
 	}
 	// Moonphase: one bg per pre-rendered disc variant across the synodic
 	// cycle (14 total). BgPathFor picks the right one per phase reading.

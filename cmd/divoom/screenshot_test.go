@@ -93,6 +93,7 @@ func TestRefreshScreenshots(t *testing.T) {
 		{"iss", "-22.5°, -45.3°|next pass in 47m|over South America"},
 		{"github", "14238|287|4|11"},
 		{"reddit", "pcgaming|Half-Life 3 finally confirmed at The Game Awards|polygon.com|2841|gabe_irl|2h|1247"},
+		{"seismic", "3.4|7|142|NW|3h ago"},
 	}
 
 	// Build the scene set. Provide a non-nil stub for the github widget
