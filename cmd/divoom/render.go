@@ -27,7 +27,12 @@ func runRender(args []string) error {
 		return fmt.Errorf("mkdir %s: %w", scenesDir, err)
 	}
 
-	now := time.Now()
+	// Hardcoded to keep every screenshot reproducible — year-progress
+	// bar, dayofyear "today" cell, time/day-of-week header and all
+	// other time-dependent baking line up across the scene set.
+	// Wednesday 2026-05-27 12:34 local (-07:00).
+	now := time.Date(2026, time.May, 27, 12, 34, 0, 0,
+		time.FixedZone("local", -7*3600))
 	scenes := []struct {
 		name   string
 		render func() ([]byte, error)
@@ -139,6 +144,17 @@ func runRender(args []string) error {
 		data, err := s.render()
 		if err != nil {
 			return fmt.Errorf("render %q: %w", s.name, err)
+		}
+		// Bake the always-on header (day name, time, footer,
+		// weekend status) on top of every scene so the dist/
+		// screenshots look like the device with the daemon's
+		// Text/Time/Week elements installed. Skipped for the
+		// neutral test pattern, which has no scene chrome.
+		if s.name != "test" {
+			data, err = render.BakeAlwaysOnHeaderJPEG(data, now)
+			if err != nil {
+				return fmt.Errorf("bake header %q: %w", s.name, err)
+			}
 		}
 		path := filepath.Join(scenesDir, s.name+".jpg")
 		if err := os.WriteFile(path, data, 0o644); err != nil {
