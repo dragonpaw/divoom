@@ -1178,6 +1178,12 @@ type QuoteSceneOpts struct {
 	Tagline      string
 	TaglineColor string
 	HasAuthor    bool
+	// AuthorPlainCase keeps the attribution in its source case instead of
+	// upper-casing it. Used by zenquotes — the source feed serves author
+	// names like "Buddha" which read jarringly as "BUDDHA" against the
+	// soft "be here now" tagline. Off by default so the rest of the
+	// quote family keeps the typographic-mark all-caps look.
+	AuthorPlainCase bool
 }
 
 // QuoteScene returns the *scene.Scene for a promoted-quote layout. The
@@ -1252,8 +1258,12 @@ func quoteSceneMarginalia(opts QuoteSceneOpts) *scene.Scene {
 			Align: 1, FontSize: 26, FontID: fontProse,
 			FontColor: cFgDark, BgColor: cBgHard,
 		})
+		attribFmt := pipeAtUpper(2)
+		if opts.AuthorPlainCase {
+			attribFmt = pipeAt(2)
+		}
 		mounts = append(mounts, scene.Mount{
-			ID: idSceneSub2, Format: pipeAtUpper(2), AllowEmpty: true,
+			ID: idSceneSub2, Format: attribFmt, AllowEmpty: true,
 		})
 	}
 	if opts.Tagline != "" {
@@ -1924,23 +1934,34 @@ func formatISSCoordsNSEW(s string) string {
 	return fmt.Sprintf("%.1f° %s   %.1f° %s", lat, latHem, lon, lonHem)
 }
 
-// issCoordsOnly is the scene mount formatter for the ISS scene's coords
-// row. Surfaces just the reformatted "12.3° N   45.6° E" string; the
-// next-pass field lives on its own row (see issNextPass).
-func issCoordsOnly(raw string) (text, color string) {
-	return formatISSCoordsNSEW(pipeAtRaw(raw, 0)), ""
-}
-
-// issNextPass is the scene mount formatter for the ISS scene's next-pass
-// row. Rewrites the widget's "next pass in 1h 04m" string into the
-// compact "next pass · 1h 04m" form the scene uses; returns "" when the
-// widget's pass segment is empty so the row collapses cleanly.
-func issNextPass(raw string) (text, color string) {
+// issCoordsAndPass is the scene mount formatter for the ISS scene's
+// combined coords-and-next-pass row. Renders "12.3° N   45.6° E" alone
+// when the next-pass segment is empty, otherwise appends a separator and
+// the compact "next pass · 1h 04m" form. The two facts share a row so
+// the scene can afford a separate live telemetry strip without busting
+// the device's 6-Text per-type cap.
+func issCoordsAndPass(raw string) (text, color string) {
+	coords := formatISSCoordsNSEW(pipeAtRaw(raw, 0))
 	pass := strings.TrimPrefix(pipeAtRaw(raw, 1), "next pass in ")
 	if pass == "" {
-		return "", ""
+		return coords, ""
 	}
-	return "next pass · " + pass, ""
+	return coords + "   ·   next pass · " + pass, ""
+}
+
+// issTelemetryStrip formats the live telemetry strip that sits under
+// the always-on top zone — "● ISS · 408km altitude · 7.66km/s". The
+// values come from the widget's pipe[3] (altitude) and pipe[4]
+// (velocity). When either is missing (network failure) the strip falls
+// back to "● ISS" alone so the row still labels itself rather than
+// going blank.
+func issTelemetryStrip(raw string) (text, color string) {
+	alt := pipeAtRaw(raw, 3)
+	vel := pipeAtRaw(raw, 4)
+	if alt == "" || vel == "" {
+		return "● ISS", cFgDark
+	}
+	return "● ISS · " + alt + "km altitude · " + vel + "km/s", cFgDark
 }
 
 // parseISSPassDuration parses the widget's pass segment ("next pass in

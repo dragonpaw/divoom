@@ -90,7 +90,7 @@ func TestRefreshScreenshots(t *testing.T) {
 		{"onthisday", "1969|Apollo 10 returned to Earth after a successful mission as a dress rehearsal for the first lunar landing, splashing down in the Pacific Ocean east of American Samoa."},
 		{"sunrise", "5:52 AM|8:23 PM|14h 31m"},
 		{"weather-cloudy", "63°F|cloudy||45|62|30"},
-		{"iss", "-22.5°, -45.3°|next pass in 47m|over South America"},
+		{"iss", "-22.5°, -45.3°|next pass in 47m|over South America|408|7.66"},
 		{"github", "14238|287|4|11"},
 		{"reddit", "pcgaming|Half-Life 3 finally confirmed at The Game Awards|polygon.com|2841|gabe_irl|2h|1247"},
 		{"seismic", "3.4|7|142|NW|3h ago"},

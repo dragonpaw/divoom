@@ -55,6 +55,26 @@
 //	rsvg-convert -w 200 -h 200 -o internal/render/assets/buddha.png \
 //	  /tmp/1f9d8.svg
 //
+// lotus.png is the "lotus" emoji (🪷, U+1FAB7) from Twemoji (jdecked
+// fork — the active community maintained set after Twitter shuttered the
+// upstream project):
+//
+//	https://github.com/jdecked/twemoji
+//	https://raw.githubusercontent.com/jdecked/twemoji/main/assets/svg/1fab7.svg
+//
+// Licensed under CC-BY 4.0 (graphics). We only use the silhouette mask;
+// every opaque pixel is overpainted at render time. Replaces the earlier
+// 🧘 (1F9D8) glyph for SceneZenQuotes — at silhouette the meditator read
+// as a thin stick figure, while the lotus is the canonical chunky-and-
+// symmetric zen mark and stays legible at GruvFg.
+//
+// To regenerate the PNG from the source SVG:
+//
+//	curl -o /tmp/1fab7.svg \
+//	  https://raw.githubusercontent.com/jdecked/twemoji/main/assets/svg/1fab7.svg
+//	rsvg-convert -w 200 -h 200 -o internal/render/assets/lotus.png \
+//	  /tmp/1fab7.svg
+//
 // The weather/*.png masks are rasterised from Erik Flowers' Weather Icons
 // (https://erikflowers.github.io/weather-icons/), licensed under the SIL
 // Open Font License 1.1. Each outlook maps to one icon in the set:
@@ -243,6 +263,9 @@ var starfleetDeltaPNG []byte
 
 //go:embed assets/buddha.png
 var buddhaPNG []byte
+
+//go:embed assets/lotus.png
+var lotusPNG []byte
 
 //go:embed assets/devil.png
 var devilPNG []byte

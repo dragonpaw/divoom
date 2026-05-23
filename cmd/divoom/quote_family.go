@@ -97,7 +97,8 @@ var quoteSceneRegistry = []struct {
 		Name: "zenquotes", Scene: render.SceneZenQuotes, BgPath: bgZenQuotes,
 		ChromeFor: func(now time.Time) render.FamilyChrome {
 			return render.FamilyChrome{
-				Family: FamilyMarginalia,
+				Family:   FamilyMarginalia,
+				BookName: "Dhammapada",
 			}
 		},
 	},

@@ -9,23 +9,29 @@ import (
 )
 
 // "ISS" — sub-satellite-point tracker. The scene's background bakes a
-// dim equirectangular world map plus a fixed telemetry strip
-// ("●  ISS  ·  408km altitude  ·  7.66km/s") so the body only has to
-// install four live Text elements:
+// dim equirectangular world map outline plus a single hairline under
+// the always-on top zone; the telemetry strip
+// ("● ISS · 408km altitude · 7.66km/s") above that hairline is now a
+// live Text element fed by the widget's altitude + velocity segments,
+// so the readings update with the position instead of lying.
+//
+// Body Text elements (4):
 //
 //   - a colourful ● dot positioned over the current lat/lon (recomputed
 //     by OnActivate at every activation from the widget's pipe[0]),
+//   - the live telemetry strip ("● ISS · <alt>km altitude · <vel>km/s"),
 //   - an "over <location>" location line,
-//   - a coordinates row in monospaced dim text, and
-//   - a next-pass row that turns aqua when the next pass is imminent
-//     (within 60 minutes) and dim otherwise.
+//   - a combined coords + next-pass row in monospaced text; the whole
+//     row turns aqua when the next pass is imminent (within 60
+//     minutes), cFgDark otherwise.
 //
-// The widget emits "<lat>°, <lon>°|<next-pass>|over <region>"; the
-// pass and region segments may be empty when their respective
+// The widget emits
+// "<lat>°, <lon>°|<next-pass>|over <region>|<altitude>|<velocity>";
+// the pass and region segments may be empty when their respective
 // upstreams flake out, so the body mounts use AllowEmpty.
 //
-// Element count: baked title (0) + dot (1) + location (1) + coords (1)
-// + next-pass (1) = 4 scene Text + 2 always-on = 6 Text. At the
+// Element count: dot (1) + telemetry (1) + location (1) +
+// coords/pass (1) = 4 scene Text + 2 always-on = 6 Text. At the
 // device's per-type cap.
 func issScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
@@ -47,26 +53,28 @@ func issScene(widgets map[string]widget.Widget) *scene.Scene {
 				FontColor: cYellow, BgColor: cBgHard,
 				TextMessage: "●",
 			},
-			// Location line — "over <region>", prose, fg.
+			// Telemetry strip — Iosevka mono 28pt, sits where the old
+			// baked text was (left-aligned at x=80, y=510). Always
+			// cFgDark — subordinate to the live ● dot.
 			{
 				ID: idSceneSub1, Type: "Text",
+				StartX: 80, StartY: 510, Width: 640, Height: 30,
+				Align: 1, FontSize: 28, FontID: fontMono,
+				FontColor: cFgDark, BgColor: cBgHard,
+			},
+			// Location line — "over <region>", prose, fg.
+			{
+				ID: idSceneSub2, Type: "Text",
 				StartX: 80, StartY: 970, Width: 640, Height: 70,
 				Align: 2, FontSize: 44, FontID: fontProse,
 				FontColor: cFg, BgColor: cBgHard,
 			},
-			// Coords row — mono, dim. "12.3° N   45.6° E".
-			{
-				ID: idSceneSub2, Type: "Text",
-				StartX: 80, StartY: 1050, Width: 640, Height: 50,
-				Align: 2, FontSize: 28, FontID: fontMono,
-				FontColor: cFgDark, BgColor: cBgHard,
-			},
-			// Next-pass row — mono. Colour set by issColorizePass:
-			// cAqua when the pass is within 60 minutes ("look up!"),
-			// cFgDark otherwise.
+			// Coords + next-pass row — mono. Colour set by
+			// issColorizePass: cAqua when the pass is within 60 minutes
+			// ("look up!"), cFgDark otherwise.
 			{
 				ID: idSceneSub3, Type: "Text",
-				StartX: 80, StartY: 1110, Width: 640, Height: 50,
+				StartX: 80, StartY: 1080, Width: 640, Height: 50,
 				Align: 2, FontSize: 28, FontID: fontMono,
 				FontColor: cFgDark, BgColor: cBgHard,
 			},
@@ -76,9 +84,9 @@ func issScene(widgets map[string]widget.Widget) *scene.Scene {
 			// The dot element gets no Format — its TextMessage is the
 			// literal "●" baked into Elements. Positioning happens in
 			// OnActivate, which runs after Mounts.
-			{ID: idSceneSub1, Format: pipeAt(2), AllowEmpty: true},
-			{ID: idSceneSub2, Format: issCoordsOnly, AllowEmpty: true},
-			{ID: idSceneSub3, Format: issNextPass, AllowEmpty: true},
+			{ID: idSceneSub1, Format: issTelemetryStrip},
+			{ID: idSceneSub2, Format: pipeAt(2), AllowEmpty: true},
+			{ID: idSceneSub3, Format: issCoordsAndPass, AllowEmpty: true},
 		},
 		OnActivate: issOnActivate,
 	}
@@ -92,11 +100,12 @@ func issOnActivate(now time.Time, raw string, elements []frame.DispElement) {
 	issColorizePass(now, raw, elements)
 }
 
-// issColorizePass sets the next-pass row's FontColor to cAqua when the
-// widget's pass duration is within 60 minutes — a "look up, it's about
-// to fly over" signal — and leaves it at cFgDark otherwise. Missing or
-// unparseable pass values keep the dim default; the row's text comes
-// from issNextPass, which surfaces "" for those cases.
+// issColorizePass sets the combined coords+next-pass row's FontColor to
+// cAqua when the widget's pass duration is within 60 minutes — a "look
+// up, it's about to fly over" signal — and leaves it at cFgDark
+// otherwise. Missing or unparseable pass values keep the dim default;
+// the row's text comes from issCoordsAndPass, which surfaces just the
+// coords (no pass suffix) for those cases.
 func issColorizePass(_ time.Time, raw string, elements []frame.DispElement) {
 	dur, ok := parseISSPassDuration(pipeAtRaw(raw, 1))
 	if !ok {

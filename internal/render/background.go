@@ -196,6 +196,7 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 	case SceneSeismic:
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "seismic activity")
+		drawSeismicCaption(img)
 	case SceneDidYouKnow:
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "did you know?")
@@ -204,7 +205,7 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		drawBakedSceneTitle(img, "on this day")
 	case SceneNASA:
 		drawSceneGlyph(img, scene)
-		drawBakedSceneTitle(img, "astronomy picture of the day")
+		drawNASACredit(img)
 	case SceneCocktail:
 		// No scene glyph — the cocktail scene's body is painted at
 		// `divoom push` time by bakeCocktailBackground as a typographic
@@ -662,6 +663,62 @@ func drawBakedSceneTitle(img *image.RGBA, title string) {
 	drawLabelCentered(img, title, face, CanvasW/2, 505, GruvFgDark)
 }
 
+// drawNASACredit bakes the nasa scene's title row as a two-tone
+// "NASA · astronomy picture of the day" — replaces the standard
+// sceneTitle so NASA gets explicit credit for the photos. NASA in
+// gruvbox orange (their wordmark colour evokes the "worm" logo);
+// the rest of the title in the canonical small dim grey.
+func drawNASACredit(img *image.RGBA) {
+	f, err := LoadFont("RobotoCondensed-Light.ttf")
+	if err != nil {
+		slog.Warn("nasa credit: font load failed", "err", err)
+		return
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size: 26, DPI: 72, Hinting: font.HintingFull,
+	})
+	if err != nil {
+		slog.Warn("nasa credit: face init failed", "err", err)
+		return
+	}
+	defer face.Close()
+	const (
+		baseline = 505
+		nasa     = "NASA"
+		rest     = " · astronomy picture of the day"
+	)
+	// Measure both halves with the already-opened face so the
+	// combined string centres horizontally on the canvas.
+	nasaW := font.MeasureString(face, nasa).Ceil()
+	restW := font.MeasureString(face, rest).Ceil()
+	x := CanvasW/2 - (nasaW+restW)/2
+	drawLabelLeft(img, nasa, face, x, baseline, GruvOrange)
+	drawLabelLeft(img, rest, face, x+nasaW, baseline, GruvFgDark)
+}
+
+// drawSeismicCaption bakes the "magnitude" caption row directly
+// under the hero number, mirroring github's "lifetime contributions"
+// pattern. With the hero element at y=620 height=220 (bottom y=840)
+// and the stats row at y=880, the caption sits at y=870 baseline —
+// the small dead band between the two. Roboto Condensed Light 24pt
+// GruvFgDark, centred.
+func drawSeismicCaption(img *image.RGBA) {
+	f, err := LoadFont("RobotoCondensed-Light.ttf")
+	if err != nil {
+		slog.Warn("seismic caption: font load failed", "err", err)
+		return
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size: 24, DPI: 72, Hinting: font.HintingFull,
+	})
+	if err != nil {
+		slog.Warn("seismic caption: face init failed", "err", err)
+		return
+	}
+	defer face.Close()
+	drawLabelCentered(img, "magnitude", face, CanvasW/2, 870, GruvFgDark)
+}
+
 // drawGitHubChrome bakes the GitHub scene's static chrome: title row,
 // hero caption, and three stat-column labels. All five lines used to
 // be device Text elements; they're baked here so the scene's four
@@ -860,9 +917,9 @@ var (
 
 // DrawISSChrome bakes the ISS scene's static chrome onto img:
 //
-//   - a one-line telemetry strip ("●  ISS  ·  408km altitude  ·  7.66km/s")
-//     under the always-on top zone,
-//   - a hairline below the strip,
+//   - a hairline under the always-on top zone (the telemetry strip
+//     above it is now a live Text element painted by the scene — see
+//     issTelemetryStrip in scenes.go),
 //   - the equirectangular world-map outline filling the body area
 //     (loaded from the embedded mask and painted in GruvFgDark),
 //   - hairlines marking the equator (horizontal mid-line of the map)
@@ -873,25 +930,10 @@ var (
 // every activation from the current lat/lon.
 func DrawISSChrome(img *image.RGBA) {
 	const (
-		left         = 80
-		right        = CanvasW - 80
-		telemetryY   = 510 // baseline for the telemetry strip
-		hairlineY    = 535
+		left      = 80
+		right     = CanvasW - 80
+		hairlineY = 535
 	)
-	if f, err := LoadFont("Iosevka-Regular.ttf"); err == nil {
-		face, err := opentype.NewFace(f, &opentype.FaceOptions{
-			Size: 26, DPI: 72, Hinting: font.HintingFull,
-		})
-		if err == nil {
-			drawLabelLeft(img, "●  ISS  ·  408km altitude  ·  7.66km/s",
-				face, left, telemetryY, GruvFgDark)
-			face.Close()
-		} else {
-			slog.Warn("iss chrome: telemetry face init failed", "err", err)
-		}
-	} else {
-		slog.Warn("iss chrome: telemetry font load failed", "err", err)
-	}
 	draw.Draw(img, image.Rect(left, hairlineY, right, hairlineY+1),
 		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
 
@@ -1720,10 +1762,15 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		drawStarfleetDelta(img, cx, cy, c)
 
 	case SceneZenQuotes:
-		// Meditating figure (🧘 in lotus position). Same mask-overpaint
-		// treatment as the Starfleet delta and weather icons; the source
-		// is a Twemoji SVG (see assets.go).
-		drawBuddha(img, cx, cy, c)
+		// Lotus flower (🪷) — the canonical zen-meditation mark. Replaces
+		// the earlier 🧘 figure, which read as a scrawny stick at
+		// silhouette. The lotus is chunky and symmetric, so it stays
+		// legible at GruvFg (cream, bright) instead of the family
+		// default dim SceneGlyphColor — design review asked for the zen
+		// glyph to carry more visual weight than the other corner
+		// glyphs since it is this scene's primary identity.
+		_ = c
+		drawLotus(img, cx, cy, GruvFg)
 
 	case SceneNASA:
 		// Saturn-with-ring: a filled planet disc plus a thin elliptical
@@ -2024,6 +2071,28 @@ func drawBuddha(img *image.RGBA, cx, cy int, c color.RGBA) {
 		buddhaMask = m
 	})
 	paintMask(img, buddhaMask, cx, cy, c)
+}
+
+// lotusMask is the decoded lotus-flower silhouette PNG; loaded once on
+// first use. Replaces the buddha glyph for SceneZenQuotes — see the
+// SceneZenQuotes branch of drawSceneGlyphAt for why.
+var (
+	lotusOnce sync.Once
+	lotusMask image.Image
+)
+
+// drawLotus paints the lotus-flower silhouette centred on (cx, cy) in
+// colour c. Mirror of drawBuddha — embedded PNG decoded once, then
+// handed to paintMask.
+func drawLotus(img *image.RGBA, cx, cy int, c color.RGBA) {
+	lotusOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(lotusPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded lotus: %w", err))
+		}
+		lotusMask = m
+	})
+	paintMask(img, lotusMask, cx, cy, c)
 }
 
 // devilMask is the decoded imp-face silhouette PNG; loaded once on first

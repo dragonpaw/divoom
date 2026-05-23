@@ -402,6 +402,50 @@ func TestParseISSCoords(t *testing.T) {
 	})
 }
 
+// TestISSTelemetryStrip pins the live-telemetry formatter so the strip
+// reads "● ISS · 408km altitude · 7.66km/s" when the widget supplies
+// altitude + velocity, and degrades to "● ISS" alone when either is
+// missing (network failure) rather than going blank or surfacing "0km".
+func TestISSTelemetryStrip(t *testing.T) {
+	cases := []struct {
+		name, raw, want string
+	}{
+		{
+			"present",
+			"-22.5°, -45.3°|next pass in 47m|over South America|408|7.66",
+			"● ISS · 408km altitude · 7.66km/s",
+		},
+		{
+			"missing altitude",
+			"-22.5°, -45.3°|next pass in 47m|over South America||7.66",
+			"● ISS",
+		},
+		{
+			"missing velocity",
+			"-22.5°, -45.3°|next pass in 47m|over South America|408|",
+			"● ISS",
+		},
+		{
+			"only coords (legacy)",
+			"-22.5°, -45.3°||",
+			"● ISS",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, gotColor := issTelemetryStrip(c.raw)
+			if got != c.want {
+				t.Errorf("issTelemetryStrip(%q) text = %q, want %q",
+					c.raw, got, c.want)
+			}
+			if gotColor != cFgDark {
+				t.Errorf("issTelemetryStrip(%q) color = %q, want %q",
+					c.raw, gotColor, cFgDark)
+			}
+		})
+	}
+}
+
 // TestTILBody covers the prefix-stripping + defensive "that " prepend
 // rules so the body always flows out of the baked "T I L" wordmark
 // as a single grammatical sentence.

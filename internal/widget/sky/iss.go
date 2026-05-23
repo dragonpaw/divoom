@@ -14,15 +14,16 @@ import (
 
 // ISS emits the International Space Station's current sub-satellite point
 // and (when available) the wall-clock time until its next visible pass over
-// our location. Output is pipe-separated for the "iss" scene's three Text
+// our location. Output is pipe-separated for the "iss" scene's Text
 // elements:
 //
-//	"<lat>°, <lon>°|next pass in 1h 23m|over <location>"
+//	"<lat>°, <lon>°|next pass in 1h 23m|over <location>|<altitude_km>|<velocity_km_s>"
 //
-// The position is sourced from wheretheiss.at (HTTPS, no-auth, stable);
-// the next-pass segment is sourced from open-notify.org's iss-pass
-// endpoint, which has historically been flaky. When open-notify fails or
-// returns an empty payload, the second segment is left blank — the
+// The position, altitude (km above the geoid) and velocity (km/s) are
+// sourced from wheretheiss.at (HTTPS, no-auth, stable) in a single
+// payload; the next-pass segment is sourced from open-notify.org's
+// iss-pass endpoint, which has historically been flaky. When open-notify
+// fails or returns an empty payload, that segment is left blank — the
 // scene's mounts mark it AllowEmpty so the row simply doesn't render.
 //
 // "over <location>" is computed locally — see locationFor in iss_geo.go.
@@ -52,6 +53,8 @@ const issPositionURL = "https://api.wheretheiss.at/v1/satellites/25544"
 type issPosition struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
+	Altitude  float64 `json:"altitude"`
+	Velocity  float64 `json:"velocity"`
 }
 
 type issPassResponse struct {
@@ -72,10 +75,12 @@ func (s *ISS) Fetch(ctx context.Context) (string, error) {
 		passSeg = formatNextPass(when, time.Now())
 	}
 	loc := locationFor(pos.Latitude, pos.Longitude)
-	return fmt.Sprintf("%s|%s|%s",
+	return fmt.Sprintf("%s|%s|%s|%s|%s",
 		formatCoords(pos.Latitude, pos.Longitude),
 		passSeg,
 		loc,
+		fmt.Sprintf("%.0f", pos.Altitude),
+		fmt.Sprintf("%.2f", pos.Velocity),
 	), nil
 }
 
