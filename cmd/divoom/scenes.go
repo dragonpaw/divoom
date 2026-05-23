@@ -1405,21 +1405,20 @@ func vCenterInTrack(text string, e frame.DispElement, trackTop, trackBot, charsP
 // the same palette (yellow headword, aqua POS, fg definition) so they
 // read as a consistent typographic family even when the source material
 // differs.
-// DictionaryStyle picks one of three per-source body layouts that share
+// DictionaryStyle picks one of the per-source body layouts that share
 // the FamilyTerminal chrome (shell prompt + status-bar footer). The
 // styles tune typography and proportions for the different shapes of
 // the underlying corpora:
-//   - StyleManpage   — jargon: header line, body, see-also footer.
+//   - StyleManpage   — jargon / wordnik: header line, body, optional footer.
 //   - StylePunchline — devil's: big centred aphorism in pull-quote ornaments.
-//   - StyleCeremony  — wordnik: monumental centred headword, tiny POS, breathy body.
 type DictionaryStyle int
 
 const (
-	// StyleManpage is the zero value — jargon's three-row layout (header,
-	// body, see-also). Default for scenes that don't set Style explicitly.
+	// StyleManpage is the zero value — the manpage three-row layout
+	// (header, body, footer). Default for scenes that don't set Style
+	// explicitly. Used by jargon and wordnik.
 	StyleManpage DictionaryStyle = iota
 	StylePunchline
-	StyleCeremony
 )
 
 type DictionarySceneOpts struct {
@@ -1437,9 +1436,10 @@ func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
 	switch opts.Style {
 	case StylePunchline:
 		return dictionarySceneDevil(opts)
-	case StyleCeremony:
-		return dictionarySceneWordnik(opts)
 	default:
+		if opts.Name == "wordnik" {
+			return dictionarySceneWordnik(opts)
+		}
 		return dictionarySceneJargon(opts)
 	}
 }
@@ -1447,8 +1447,7 @@ func DictionaryScene(opts DictionarySceneOpts) *scene.Scene {
 // dictionaryHeadwordX computes where the headword should start on the
 // shell-prompt line — flush right of the baked "$ <cmd> " prompt. The
 // fallback (80) is the canvas left margin and matches the chrome-failure
-// render path. Shared by the StyleManpage and StylePunchline layouts;
-// StyleCeremony centres the headword instead and doesn't call this.
+// render path. Shared by all three per-source layouts.
 func dictionaryHeadwordX(name string) int {
 	chrome := quoteFamilyChromeByName(name, time.Now())
 	if chrome.ShellPrompt == "" {
@@ -1547,36 +1546,43 @@ func dictionarySceneDevil(opts DictionarySceneOpts) *scene.Scene {
 	}
 }
 
-// dictionarySceneWordnik builds the StyleCeremony layout: a monumental
-// letter-spaced headword centred at the top of the body area, a tiny
-// POS+pronunciation row beneath it, and the body's prose centred below.
-// The shell prompt (with today's date) is baked into the bg chrome but
-// the headword is centre-aligned in its own track and doesn't sit
-// alongside it — the negative space IS the design.
+// dictionarySceneWordnik builds wordnik's variant of the manpage layout:
+// a one-line headword+POS flush right of the baked "$ wotd YYYY-MM-DD"
+// shell prompt, the IPA pronunciation in a small dim row underneath,
+// and the definition body filling the rest of the page. Mirrors
+// dictionarySceneJargon's chassis; only the middle row (pronunciation
+// instead of see-also footer) differs.
 func dictionarySceneWordnik(opts DictionarySceneOpts) *scene.Scene {
+	headwordX := dictionaryHeadwordX(opts.Name)
 	elements := []frame.DispElement{
 		{
+			// Headword in the same Iosevka 28pt as the baked
+			// "$ wotd ..." prompt to its left, baseline-aligned at
+			// y=515. Reads as `$ wotd 2026-05-27 EPHEMERAL adj.`.
 			ID: idSceneSub1, Type: "Text",
-			StartX: 40, StartY: 620, Width: 720, Height: 160,
-			Align: 2, FontSize: 110, FontID: fontProseLight,
+			StartX: headwordX, StartY: 487, Width: CanvasW - 80 - headwordX, Height: 32,
+			Align: 0, FontSize: 28, FontID: fontMono,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
 		{
+			// Pronunciation row — small dim, just below the prompt line.
 			ID: idSceneSub2, Type: "Text",
-			StartX: 40, StartY: 800, Width: 720, Height: 50,
-			Align: 2, FontSize: 32, FontID: fontProseLight,
+			StartX: 80, StartY: 555, Width: 640, Height: 30,
+			Align: 0, FontSize: 22, FontID: fontMono,
 			FontColor: cFgDark, BgColor: cBgHard,
 		},
 		{
+			// Definition body — prose, left-aligned, fills the
+			// body region between the chrome rules.
 			ID: idSceneSub3, Type: "Text",
-			StartX: 80, StartY: 940, Width: 640, Height: 200,
-			Align: 2, FontSize: 44, FontID: fontProseLight,
+			StartX: 80, StartY: 620, Width: 640, Height: 480,
+			Align: 0, FontSize: 36, FontID: fontProse,
 			FontColor: cFg, BgColor: cBgHard,
 		},
 	}
 	mounts := []scene.Mount{
-		{ID: idSceneSub1, Format: wordnikHeadword, Geometry: fitWordnikHeadword},
-		{ID: idSceneSub2, Format: wordnikPosPron, AllowEmpty: true},
+		{ID: idSceneSub1, Format: wordnikHeadwordPOS},
+		{ID: idSceneSub2, Format: wordnikPronunciation, AllowEmpty: true},
 		{ID: idSceneSub3, Format: dictionaryDefinition, Geometry: fitDictionaryBody},
 	}
 	return &scene.Scene{
@@ -1649,7 +1655,7 @@ func devilHeader(raw string) (text, color string) {
 	return w + ", " + p, ""
 }
 
-// wordnikHeadword returns the headword with thin-space letter-spacing
+// MARKER_FOR_DELETION
 // for the StyleCeremony layout, e.g. "EPHEMERAL" → "E P H E M E R A L".
 // Thin space (U+2009) is narrower than a regular space so the letters
 // read as one word rather than dissociated columns.

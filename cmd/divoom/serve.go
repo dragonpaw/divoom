@@ -136,15 +136,22 @@ func runServe(ctx context.Context) error {
 	scenes := buildScenes(widgets)
 
 	// Priority bump: scenes named in DIVOOM_PRIORITY_SCENES get their
-	// weight set to priorityWeight so they fire ~3× more often than the
-	// default-weight scenes. Defaults to the live-data weather scenes
-	// when the env var is unset/empty. Unknown names are logged and
-	// ignored — a typo shouldn't crash startup.
+	// weight set to priorityWeight so they fire ~2× more often than
+	// the default-weight scenes — informational / live-data scenes
+	// (weather, sunrise, moon, ISS, etc.) earn more airtime than the
+	// curated whimsy (quote families, cocktail, NASA). Default list
+	// covers the obvious informational set; the env var overrides it
+	// when set. Unknown names are logged and ignored — a typo
+	// shouldn't crash startup.
 	priorityNames := parsePriorityScenes(os.Getenv("DIVOOM_PRIORITY_SCENES"))
 	if priorityNames == nil {
-		priorityNames = []string{"weather", "forecast"}
+		priorityNames = []string{
+			"weather", "forecast", "sunrise", "moonphase",
+			"iss", "dayofyear", "github", "hn", "reddit",
+			"markets", "seismic", "onthisday", "til",
+		}
 	}
-	const priorityWeight = 60
+	const priorityWeight = 40
 	for _, name := range priorityNames {
 		bumped := false
 		for _, s := range scenes {
