@@ -214,6 +214,20 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneGitHub, render.FormatJPEG, now) }, bgGitHub},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneTIL, render.FormatJPEG, now) }, bgTIL},
 	}
+	// Moonphase: one bg per pre-rendered disc variant across the synodic
+	// cycle (14 total). BgPathFor picks the right one per phase reading.
+	for i := 0; i < render.MoonPhaseVariants; i++ {
+		idx, path := i, moonBackgrounds[i]
+		bgs = append(bgs, struct {
+			render func() ([]byte, error)
+			path   string
+		}{
+			render: func() ([]byte, error) {
+				return render.SceneMoonphaseBackground(idx, render.FormatJPEG, now)
+			},
+			path: path,
+		})
+	}
 	// Quote-family scenes: each carries baked chrome (in-universe header /
 	// book-page imprint / shell prompt + status bar) so the device's
 	// 6-element cap stays free for the dynamic body text. See

@@ -44,9 +44,6 @@ func runRender(args []string) error {
 		{name: "scene-markets", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneMarkets, render.FormatJPEG, now)
 		}},
-		{name: "scene-moonphase", render: func() ([]byte, error) {
-			return render.SceneBackground(render.SceneMoonphase, render.FormatJPEG, now)
-		}},
 		{name: "scene-hn", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneHN, render.FormatJPEG, now)
 		}},
@@ -97,6 +94,21 @@ func runRender(args []string) error {
 			name: "scene-" + q.Name,
 			render: func() ([]byte, error) {
 				return render.SceneFamilyBackground(q.Scene, q.ChromeFor(now), render.FormatJPEG, now)
+			},
+		})
+	}
+	// One preview per pre-rendered moonphase variant (14 in all), mirroring
+	// the daemon's pushSceneBackgrounds loop so the disc set can be eyeballed
+	// without flashing the device.
+	for i := 0; i < render.MoonPhaseVariants; i++ {
+		idx := i
+		scenes = append(scenes, struct {
+			name   string
+			render func() ([]byte, error)
+		}{
+			name: fmt.Sprintf("scene-moonphase-%02d", idx),
+			render: func() ([]byte, error) {
+				return render.SceneMoonphaseBackground(idx, render.FormatJPEG, now)
 			},
 		})
 	}

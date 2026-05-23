@@ -94,6 +94,80 @@ func TestWeatherAQI(t *testing.T) {
 	}
 }
 
+// TestMoonPhaseIndex covers the boundary collapses (new / full) and a
+// sampling of intermediate waxing / waning illuminations so the BgPathFor
+// mapping stays pinned. Variant illumination values (rounded):
+//   1→5, 2→21, 3→43, 4→67, 5→87, 6→98 (waxing)
+//   8→98, 9→87, 10→67, 11→43, 12→21, 13→5 (waning)
+func TestMoonPhaseIndex(t *testing.T) {
+	cases := []struct {
+		name   string
+		illum  int
+		waxing bool
+		want   int
+	}{
+		{"0% waxing → new", 0, true, 0},
+		{"3% waxing → new (below threshold)", 3, true, 0},
+		{"4% waxing → first waxing variant", 4, true, 1},
+		{"61% waxing → variant 4 (near first-quarter sample)", 61, true, 4},
+		{"67% waxing → variant 4", 67, true, 4},
+		{"96% waxing → variant 6 (last sub-full)", 96, true, 6},
+		{"97% waxing → full", 97, true, 7},
+		{"100% waxing → full", 100, true, 7},
+		{"0% waning → new", 0, false, 0},
+		{"100% waning → full", 100, false, 7},
+		{"61% waning → variant 10", 61, false, 10},
+		{"21% waning → variant 12", 21, false, 12},
+		{"5% waning → variant 13", 5, false, 13},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := moonPhaseIndex(tc.illum, tc.waxing); got != tc.want {
+				t.Errorf("moonPhaseIndex(%d, waxing=%v) = %d, want %d",
+					tc.illum, tc.waxing, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMoonBgPathFor exercises the end-to-end parse from the widget's
+// "moon · <name> · <illum>% · <countdown>" string to a variant path.
+// Covers each phase name family the widget emits.
+func TestMoonBgPathFor(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"new", "moon · new · 0% · full moon in 15 days", moonBackgrounds[0]},
+		{"full", "moon · full · 100% · next full moon: Jun 1", moonBackgrounds[7]},
+		{"first quarter at 50% (lands on variant 4 — closest sample)", "moon · first quarter · 50% · full moon in 7 days", moonBackgrounds[4]},
+		{"waxing crescent low", "moon · waxing crescent · 5% · full moon in 13 days", moonBackgrounds[1]},
+		{"waxing gibbous", "moon · waxing gibbous · 85% · full moon in 2 days", moonBackgrounds[5]},
+		{"waning crescent", "moon · waning crescent · 5% · next full moon: Jul 1", moonBackgrounds[13]},
+		{"last quarter at 50% (lands on variant 11)", "moon · last quarter · 50% · next full moon: Jul 1", moonBackgrounds[11]},
+		{"malformed → safe full fallback", "garbage", moonBackgrounds[7]},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := moonBgPathFor(tc.raw); got != tc.want {
+				t.Errorf("moonBgPathFor(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMoonPhaseAndIllum verifies the combined formatter title-cases the
+// phase name and stitches it together with the raw illum segment.
+func TestMoonPhaseAndIllum(t *testing.T) {
+	if text, _ := moonPhaseAndIllum("moon · first quarter · 53% · full moon in 7 days"); text != "First Quarter · 53%" {
+		t.Errorf("moonPhaseAndIllum first quarter = %q, want %q", text, "First Quarter · 53%")
+	}
+	if text, _ := moonPhaseAndIllum("moon · new · 0% · full moon in 15 days"); text != "New · 0%" {
+		t.Errorf("moonPhaseAndIllum new = %q, want %q", text, "New · 0%")
+	}
+}
+
 // TestWeatherHumidityAndRain covers the present + blank cases for the
 // two simple percentage formatters.
 func TestWeatherHumidityAndRain(t *testing.T) {
