@@ -35,7 +35,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -66,7 +68,7 @@ func bakeNASAandCocktailBackgrounds(ctx context.Context) error {
 	if err := bakeAllNASABackgrounds(ctx); err != nil {
 		slog.Warn("nasa bg compositing failed", "err", err)
 	}
-	if err := bakeCocktailBackground(ctx); err != nil {
+	if err := bakeAllCocktailBackgrounds(ctx); err != nil {
 		slog.Warn("cocktail bg compositing failed; leaving plain scene bg", "err", err)
 	}
 	return nil
@@ -411,7 +413,11 @@ func retryAfterDuration(header string) time.Duration {
 //	y=1060… method prose        — 24pt Roboto Light, gruvFgDark, wrapped
 
 const (
-	cocktailAPIURL = "https://www.thecocktaildb.com/api/json/v1/1/random.php"
+	// TheCocktailDB's free tier uses literal key "1" in the path. The
+	// list endpoint returns ID + name only (filter by category); the
+	// lookup endpoint returns the full drink record by ID.
+	cocktailListAPIBase   = "https://www.thecocktaildb.com/api/json/v1/1/filter.php?c="
+	cocktailLookupAPIBase = "https://www.thecocktaildb.com/api/json/v1/1/lookup.php?i="
 
 	cocktailLeft  = 80
 	cocktailRight = 720
@@ -449,34 +455,73 @@ type recipeRow struct {
 	Ingredient string
 }
 
-func bakeCocktailBackground(ctx context.Context) error {
-	name, glass, category, instructions, rows, err := fetchCocktail(ctx)
+// cocktailCategories drives the rotation pool. Cocktail covers the
+// canonical "fancy drink" half; Shot covers the silly / weird /
+// shooter half (Brain Hemorrhage, Cement Mixer, Liquid Cocaine, etc.).
+// Mocktails excluded per design — the user wants the bar, not the
+// soda fountain.
+var cocktailCategories = []string{"Cocktail", "Shot"}
+
+// bakeAllCocktailBackgrounds fetches the full Cocktail + Shot drink
+// list from TheCocktailDB, looks up each drink, bakes the recipe-card
+// bg, and pushes each to its indexed device path. The scene's
+// BgPathFor picks a random index per activation. Per-drink data is
+// cached under ~/.cache/divoom/cocktail/ so subsequent pushes skip
+// the network entirely.
+func bakeAllCocktailBackgrounds(ctx context.Context) error {
+	ids, err := fetchCocktailIDList(ctx)
 	if err != nil {
-		return fmt.Errorf("fetch cocktail: %w", err)
+		return fmt.Errorf("fetch cocktail id list: %w", err)
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("empty cocktail id list")
+	}
+
+	plainBg, err := render.SceneBackground(render.SceneCocktail, render.FormatJPEG, time.Now())
+	if err != nil {
+		return fmt.Errorf("render plain cocktail bg: %w", err)
+	}
+
+	for i, id := range ids {
+		path := bgCocktailFor(i)
+		out, err := bakeOneCocktail(ctx, id)
+		if err != nil {
+			slog.Warn("cocktail bake failed; pushing plain fallback for this index",
+				"index", i, "id", id, "err", err)
+			if perr := pushBytes(ctx, plainBg, path); perr != nil {
+				slog.Warn("cocktail fallback push failed", "index", i, "err", perr)
+			}
+			continue
+		}
+		if perr := pushBytes(ctx, out, path); perr != nil {
+			slog.Warn("cocktail push failed", "index", i, "id", id, "err", perr)
+			continue
+		}
+	}
+	slog.Info("cocktail bgs pushed", "count", len(ids))
+	return nil
+}
+
+// bakeOneCocktail looks up drink id, composites the recipe card into
+// the plain scene bg, and returns the encoded JPEG bytes.
+func bakeOneCocktail(ctx context.Context, id string) ([]byte, error) {
+	name, glass, category, instructions, rows, err := fetchCocktailByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("fetch drink: %w", err)
 	}
 
 	bgBytes, err := render.SceneBackground(render.SceneCocktail, render.FormatJPEG, time.Now())
 	if err != nil {
-		return fmt.Errorf("render scene bg: %w", err)
+		return nil, fmt.Errorf("render scene bg: %w", err)
 	}
 	canvas, err := jpegToRGBA(bgBytes)
 	if err != nil {
-		return fmt.Errorf("decode scene bg: %w", err)
+		return nil, fmt.Errorf("decode scene bg: %w", err)
 	}
-
 	if err := drawCocktailCard(canvas, name, glass, category, instructions, rows); err != nil {
-		return fmt.Errorf("draw card: %w", err)
+		return nil, fmt.Errorf("draw card: %w", err)
 	}
-
-	out, err := encodeJPEG(canvas)
-	if err != nil {
-		return fmt.Errorf("encode jpeg: %w", err)
-	}
-	if err := pushBytes(ctx, out, bgCocktail); err != nil {
-		return fmt.Errorf("push: %w", err)
-	}
-	slog.Info("cocktail bg composited and pushed", "name", name)
-	return nil
+	return encodeJPEG(canvas)
 }
 
 func drawCocktailCard(canvas *image.RGBA, name, glass, category, instructions string, rows []recipeRow) error {
@@ -576,8 +621,106 @@ func cocktailSubhead(glass, category string) string {
 	return ""
 }
 
-func fetchCocktail(ctx context.Context) (name, glass, category, instructions string, rows []recipeRow, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cocktailAPIURL, nil)
+// fetchCocktailIDList queries TheCocktailDB filter endpoint for every
+// category in cocktailCategories, merges the result lists, and
+// returns a deduped, sorted slice of drink IDs. The category list is
+// itself cached on disk (per-category JSON) so subsequent runs skip
+// the filter calls — only newly-added drinks would be missed, which
+// is fine until you manually clear the cache.
+func fetchCocktailIDList(ctx context.Context) ([]string, error) {
+	seen := make(map[string]bool)
+	var ids []string
+	for _, cat := range cocktailCategories {
+		catIDs, err := fetchCocktailCategoryIDs(ctx, cat)
+		if err != nil {
+			return nil, fmt.Errorf("category %q: %w", cat, err)
+		}
+		for _, id := range catIDs {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// fetchCocktailCategoryIDs hits filter.php?c=<category> and returns
+// the idDrink values. Cached by category name under
+// ~/.cache/divoom/cocktail/cat_<category>.json.
+func fetchCocktailCategoryIDs(ctx context.Context, category string) ([]string, error) {
+	dir := cocktailCacheDir()
+	cachePath := ""
+	if dir != "" {
+		cachePath = dir + "/cat_" + sanitiseCacheKey(category) + ".json"
+		if raw, err := os.ReadFile(cachePath); err == nil {
+			if ids, ok := parseCocktailIDList(raw); ok {
+				return ids, nil
+			}
+		}
+	}
+	endpoint := cocktailListAPIBase + url.QueryEscape(category)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "divoom-dashboard/0.1 (github.com/dragonpaw/divoom)")
+	client := &http.Client{Timeout: httpFetchTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("http %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	ids, ok := parseCocktailIDList(raw)
+	if !ok {
+		return nil, fmt.Errorf("could not parse drink list")
+	}
+	if cachePath != "" {
+		if err := os.WriteFile(cachePath, raw, 0o644); err != nil {
+			slog.Warn("cocktail list cache write failed", "category", category, "err", err)
+		}
+	}
+	return ids, nil
+}
+
+func parseCocktailIDList(raw []byte) ([]string, bool) {
+	var body cocktailResponse
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, false
+	}
+	out := make([]string, 0, len(body.Drinks))
+	for _, d := range body.Drinks {
+		out = append(out, strSafe(d["idDrink"]))
+	}
+	return out, true
+}
+
+// fetchCocktailByID hits lookup.php?i=<id> and decodes the full drink
+// record. The raw JSON is cached under
+// ~/.cache/divoom/cocktail/<id>.json so subsequent pushes skip the
+// network entirely.
+func fetchCocktailByID(ctx context.Context, id string) (name, glass, category, instructions string, rows []recipeRow, err error) {
+	dir := cocktailCacheDir()
+	cachePath := ""
+	if dir != "" && id != "" {
+		cachePath = dir + "/" + id + ".json"
+		if raw, rerr := os.ReadFile(cachePath); rerr == nil {
+			if d, ok := parseCocktailDrink(raw); ok {
+				return cocktailFields(d)
+			}
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cocktailLookupAPIBase+id, nil)
 	if err != nil {
 		return "", "", "", "", nil, err
 	}
@@ -591,21 +734,40 @@ func fetchCocktail(ctx context.Context) (name, glass, category, instructions str
 	if resp.StatusCode/100 != 2 {
 		return "", "", "", "", nil, fmt.Errorf("http %d", resp.StatusCode)
 	}
-	var body cocktailResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return "", "", "", "", nil, err
 	}
-	if len(body.Drinks) == 0 {
-		return "", "", "", "", nil, fmt.Errorf("no drinks in response")
+	d, ok := parseCocktailDrink(raw)
+	if !ok {
+		return "", "", "", "", nil, fmt.Errorf("lookup parse failed")
 	}
-	d := body.Drinks[0]
+	if cachePath != "" {
+		if err := os.WriteFile(cachePath, raw, 0o644); err != nil {
+			slog.Warn("cocktail cache write failed", "id", id, "err", err)
+		}
+	}
+	return cocktailFields(d)
+}
+
+func parseCocktailDrink(raw []byte) (map[string]any, bool) {
+	var body cocktailResponse
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, false
+	}
+	if len(body.Drinks) == 0 {
+		return nil, false
+	}
+	return body.Drinks[0], true
+}
+
+// cocktailFields extracts the name, glass, category, instructions and
+// (measure, ingredient) pairs from a parsed drink map.
+func cocktailFields(d map[string]any) (name, glass, category, instructions string, rows []recipeRow, err error) {
 	name = strings.TrimSpace(strSafe(d["strDrink"]))
 	glass = strings.TrimSpace(strSafe(d["strGlass"]))
 	category = strings.TrimSpace(strSafe(d["strCategory"]))
 	instructions = strings.TrimSpace(strSafe(d["strInstructions"]))
-
-	// Pair the 15 ingredient slots with their matching measure slots; the
-	// first empty ingredient terminates the list.
 	for i := 1; i <= 15; i++ {
 		ing := strings.TrimSpace(strSafe(d[fmt.Sprintf("strIngredient%d", i)]))
 		if ing == "" {
@@ -614,11 +776,65 @@ func fetchCocktail(ctx context.Context) (name, glass, category, instructions str
 		measure := strings.TrimSpace(strSafe(d[fmt.Sprintf("strMeasure%d", i)]))
 		rows = append(rows, recipeRow{Measure: measure, Ingredient: ing})
 	}
-
 	if name == "" {
 		return "", "", "", "", nil, fmt.Errorf("missing drink name")
 	}
 	return name, glass, category, instructions, rows, nil
+}
+
+// cocktailCacheDir mirrors apodCacheDir but under cocktail/.
+func cocktailCacheDir() string {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	dir := base + "/divoom/cocktail"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return dir
+}
+
+// cocktailPoolSize counts cached drink JSONs in cocktailCacheDir so
+// the scene's BgPathFor knows how many indexed paths exist. Returns 0
+// if the cache dir is missing or unreadable, in which case the
+// scene falls back to bgCocktailFor(0).
+func cocktailPoolSize() int {
+	dir := cocktailCacheDir()
+	if dir == "" {
+		return 0
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, "cat_") {
+			continue // category list cache, not a drink
+		}
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// sanitiseCacheKey makes a category name safe for use as a filename
+// (no path separators, no spaces).
+func sanitiseCacheKey(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 func strSafe(v any) string {

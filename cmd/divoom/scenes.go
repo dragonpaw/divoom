@@ -64,7 +64,9 @@ const (
 	// NASA APOD: bgs live at /userdata/wallclock_bg_nasa_NNN.jpg, one
 	// per curated date in nasaCuratedDates. The scene's BgPathFor
 	// picks an index per activation (see scene_nasa.go).
-	bgCocktail   = "/userdata/wallclock_bg_cocktail.jpg"
+	// Cocktail: per-drink bgs live at /userdata/wallclock_bg_cocktail_NNN.jpg,
+	// one per ID returned by bakeAllCocktailBackgrounds. See bgCocktailFor
+	// and cocktailPoolSize.
 	bgOnThisDay  = "/userdata/wallclock_bg_onthisday.jpg"
 	bgISS        = "/userdata/wallclock_bg_iss.jpg"
 	bgGitHub     = "/userdata/wallclock_bg_github.jpg"
@@ -356,6 +358,14 @@ func alwaysOn(now time.Time) []frame.DispElement {
 // activation so the wall display rotates through the curated set.
 func bgNASAFor(i int) string {
 	return fmt.Sprintf("/userdata/wallclock_bg_nasa_%03d.jpg", i)
+}
+
+// bgCocktailFor mirrors bgNASAFor for the cocktail rotation pool.
+// The bake pushes one JPG per drink from the Cocktail + Shot
+// categories; scene_cocktail.go's BgPathFor picks an index per
+// activation. Pool size is dynamic — see cocktailPoolSize().
+func bgCocktailFor(i int) string {
+	return fmt.Sprintf("/userdata/wallclock_bg_cocktail_%03d.jpg", i)
 }
 
 // sceneTitle returns the canonical scene-title element — small, dim,

@@ -209,7 +209,6 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneCatFacts, render.FormatJPEG, now) }, bgCatFacts},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneDidYouKnow, render.FormatJPEG, now) }, bgDidYouKnow},
 		{func() ([]byte, error) { return render.SunriseBackground(sunriseDaylight, render.FormatJPEG, now) }, bgSunrise},
-		{func() ([]byte, error) { return render.SceneBackground(render.SceneCocktail, render.FormatJPEG, now) }, bgCocktail},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneOnThisDay, render.FormatJPEG, now) }, bgOnThisDay},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneISS, render.FormatJPEG, now) }, bgISS},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneGitHub, render.FormatJPEG, now) }, bgGitHub},
