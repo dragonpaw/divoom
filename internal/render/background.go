@@ -406,6 +406,12 @@ type FamilyChrome struct {
 	ShellPrompt  string
 	SourceFooter string
 	AuthorFooter string
+	// PunchlineOrnaments, when set on a FamilyTerminal chrome, bakes two
+	// giant GruvFgDark pull-quote glyphs into the body area — an opening
+	// curly quote in the upper-left and a closing one in the lower-right.
+	// Used by the devil's dictionary scene whose aphorism body wants
+	// pull-quote decoration around it.
+	PunchlineOrnaments bool
 }
 
 // SceneFamilyBackground builds the hero frame, paints the scene's glyph
@@ -424,6 +430,9 @@ func SceneFamilyBackground(scene Scene, chrome FamilyChrome, format Format, now 
 		drawMarginaliaChrome(img, chrome.BookName, chrome.Chapter, chrome.DropCap, chrome.DropCapColor)
 	case FamilyTerminal:
 		drawTerminalChrome(img, chrome.ShellPrompt, chrome.SourceFooter, chrome.AuthorFooter)
+		if chrome.PunchlineOrnaments {
+			drawPunchlineOrnaments(img)
+		}
 	}
 	return encodeImage(img, format)
 }
@@ -976,6 +985,29 @@ func drawTerminalChrome(img *image.RGBA, prompt, sourceFooter, authorFooter stri
 		&image.Uniform{GruvFgDark}, image.Point{}, draw.Src)
 }
 
+// drawPunchlineOrnaments bakes two giant pull-quote curly-quote glyphs
+// into the FamilyTerminal body area — an open " (U+201C) in the upper-
+// left and a close " (U+201D) in the lower-right — both in GruvFgDark
+// at 220pt fontProse so they read as decoration rather than punctuation.
+// Used by the devil's dictionary scene to frame its centred aphorism.
+func drawPunchlineOrnaments(img *image.RGBA) {
+	f, err := LoadFont("RobotoCondensed-Regular.ttf")
+	if err != nil {
+		slog.Warn("punchline ornaments: font load failed", "err", err)
+		return
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size: 220, DPI: 72, Hinting: font.HintingFull,
+	})
+	if err != nil {
+		slog.Warn("punchline ornaments: face init failed", "err", err)
+		return
+	}
+	defer face.Close()
+	drawLabelLeft(img, "“", face, 80, 750, GruvFgDark)
+	drawLabelLeft(img, "”", face, 600, 1080, GruvFgDark)
+}
+
 // hexToRGBA parses a "#rrggbb" string into a color.RGBA, returning fallback
 // on parse failure. Used by the chrome painters so per-scene accent
 // colours can be supplied as the same gruvbox hex strings the device
@@ -1356,29 +1388,13 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		drawBabylon5(img, cx, cy, c)
 
 	case SceneDiscworld:
-		// Discworld cosmology stack: the flat Disc on top, four world
-		// elephants standing in the middle, and Great A'Tuin the star
-		// turtle swimming beneath them. All in bg-darker.
-		const (
-			discCy     = -90 // offset from cy
-			elephantsY = -65 // top of elephant rectangles, relative to cy
-			elephantH  = 50
-			elephantW  = 16
-			turtleCy   = 60 // offset from cy
-		)
-		// The Disc: wide flat ellipse.
-		fillEgg(img, cx, cy+discCy, 110, 15, 15, c)
-		// Four elephants: narrow vertical rectangles spaced under the disc.
-		elephantXs := []int{cx - 75, cx - 25, cx + 25, cx + 75}
-		for _, ex := range elephantXs {
-			draw.Draw(img,
-				image.Rect(ex-elephantW/2, cy+elephantsY, ex+elephantW/2, cy+elephantsY+elephantH),
-				&image.Uniform{c}, image.Point{}, draw.Src)
-		}
-		// Great A'Tuin: larger flat ellipse, fuller on the bottom for a
-		// domed-shell read. Tiny head circle off to the right.
-		fillEgg(img, cx, cy+turtleCy, 130, 22, 35, c)
-		fillCircle(img, cx+145, cy+turtleCy-5, 12, c)
+		// Great A'Tuin silhouette: the world turtle carrying the four
+		// world elephants who in turn carry the flat Disc. Sourced from
+		// a hand-composed PD-shape SVG (see assets.go) and overpainted
+		// in c via the same mask-paint pattern as the Starfleet delta.
+		// Replaces the older fillEgg+rect composition, which read as
+		// "blob/bars/blob" at glyph scale rather than the iconic stack.
+		drawDiscworld(img, cx, cy, c)
 
 	case SceneJargon:
 		// Curly braces { } framing an empty middle — programmer/lexicon
@@ -1848,6 +1864,28 @@ func drawBabylon5(img *image.RGBA, cx, cy int, c color.RGBA) {
 		babylon5Mask = m
 	})
 	paintMask(img, babylon5Mask, cx, cy, c)
+}
+
+// discworldMask is the decoded Great A'Tuin / elephants / disc
+// silhouette PNG; loaded once on first use. Same alpha-threshold
+// treatment as the starfleet delta.
+var (
+	discworldOnce sync.Once
+	discworldMask image.Image
+)
+
+// drawDiscworld paints the Discworld cosmology silhouette (turtle +
+// four elephants + disc) centred on (cx, cy) in colour c. Mirror of
+// drawBabylon5 — embedded PNG decoded once, then handed to paintMask.
+func drawDiscworld(img *image.RGBA, cx, cy int, c color.RGBA) {
+	discworldOnce.Do(func() {
+		m, err := png.Decode(bytes.NewReader(discworldPNG))
+		if err != nil {
+			panic(fmt.Errorf("render: decode embedded discworld: %w", err))
+		}
+		discworldMask = m
+	})
+	paintMask(img, discworldMask, cx, cy, c)
 }
 
 // tilMask is the decoded lightbulb silhouette PNG; loaded once on first

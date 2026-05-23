@@ -192,6 +192,31 @@
 //	  convert - -transparent black \
 //	  PNG32:internal/render/assets/world_map_equirect.png
 //
+// discworld.png is a hand-composed silhouette of Discworld cosmology:
+// Great A'Tuin (the world turtle) carrying the four world elephants
+// (Berilia, Tubul, Great T'Phon, Jerakeen) who in turn carry the flat
+// Disc. The SVG is built from plain geometric primitives (ellipses,
+// rectangles, a path or two for shell + tail) — the compound shape is
+// below the threshold of originality for copyright (PD-shape: simple
+// geometric composition).
+//
+// Discworld and Great A'Tuin remain trademarks / IP of the Terry
+// Pratchett estate. This PNG is used here only as a personal-display
+// glyph in the wall-clock background for the project author (same
+// fair-use stance as the Babylon 5 wordmark above). Not redistribution-
+// safe. If the repo ever goes public, this glyph may need to be replaced
+// or removed. Every opaque pixel is overpainted in c at render time.
+//
+// To regenerate the PNG from the source SVG (kept in the repo only as a
+// recipe in this comment — the SVG itself is not checked in; the
+// compositional decisions live inline below):
+//
+//	# Compose /tmp/discworld.svg as a 200x200 viewBox with the disc /
+//	# elephants / turtle primitives, then:
+//	rsvg-convert -w 200 -h 200 -o /tmp/discworld.png /tmp/discworld.svg
+//	convert /tmp/discworld.png -alpha extract -threshold 50% -negate \
+//	        -transparent black PNG32:internal/render/assets/discworld.png
+//
 // git.png is the "git" branch-diamond icon from Bootstrap Icons (MIT):
 //
 //	https://github.com/twbs/icons
@@ -260,6 +285,9 @@ var gitPNG []byte
 
 //go:embed assets/babylon5.png
 var babylon5PNG []byte
+
+//go:embed assets/discworld.png
+var discworldPNG []byte
 
 //go:embed assets/til.png
 var tilPNG []byte
