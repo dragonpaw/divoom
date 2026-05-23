@@ -1470,9 +1470,13 @@ func dictionarySceneJargon(opts DictionarySceneOpts) *scene.Scene {
 	headwordX := dictionaryHeadwordX(opts.Name)
 	elements := []frame.DispElement{
 		{
+			// Headword in the same Iosevka 28pt as the baked "$ jargon"
+			// prompt to its left, on the same baseline (y=515) — the
+			// row reads as one shell-prompt line. StartY=495 so the
+			// device's top-anchored text sits with baseline ≈y=515.
 			ID: idSceneSub1, Type: "Text",
-			StartX: headwordX, StartY: 490, Width: CanvasW - 80 - headwordX, Height: 50,
-			Align: 0, FontSize: 36, FontID: fontMono,
+			StartX: headwordX, StartY: 495, Width: CanvasW - 80 - headwordX, Height: 36,
+			Align: 0, FontSize: 28, FontID: fontMono,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
 		{
@@ -1509,12 +1513,14 @@ func dictionarySceneDevil(opts DictionarySceneOpts) *scene.Scene {
 	headwordX := dictionaryHeadwordX(opts.Name)
 	elements := []frame.DispElement{
 		{
-			// StartY=465 so the 58pt headword's baseline (≈y=515)
-			// aligns with the baked "$ define" prompt baseline at
-			// y=515 — both rendered words sit on the same line.
+			// Headword in the same Iosevka 28pt as the baked "$ define"
+			// prompt to its left, on the same baseline (y=515) — the
+			// header reads as one shell-prompt line (`$ define CYNIC, n.`).
+			// StartY=495 so the device's top-anchored text sits with
+			// baseline ≈y=515.
 			ID: idSceneSub1, Type: "Text",
-			StartX: headwordX, StartY: 465, Width: CanvasW - 80 - headwordX, Height: 70,
-			Align: 0, FontSize: 52, FontID: fontProseBlack,
+			StartX: headwordX, StartY: 495, Width: CanvasW - 80 - headwordX, Height: 36,
+			Align: 0, FontSize: 28, FontID: fontMono,
 			FontColor: cYellow, BgColor: cBgHard,
 		},
 		{
@@ -1590,18 +1596,15 @@ var dictionaryEntryWithPronRE = regexp.MustCompile(
 		`\.?\s+(.+)$`,
 )
 
-// jargonHeader builds the StyleManpage header line: headword + (optional)
-// pronunciation + POS joined with tabs. Falls back to the existing
-// dictionaryWord/POS shape when the entry doesn't carry a pronunciation.
+// jargonHeader builds the StyleManpage header line: headword + POS,
+// no pronunciation. Pronunciation guides (/yak shay'ving/, etc.)
+// pushed the row past one line and into wrap territory — the header
+// must fit beside the baked "$ jargon" prompt on a single line, so
+// we drop the pronunciation segment even when the entry carries one.
 func jargonHeader(raw string) (text, color string) {
 	body := dictionaryBody(raw)
 	if m := dictionaryEntryWithPronRE.FindStringSubmatch(body); m != nil {
-		parts := []string{m[1]}
-		if m[2] != "" {
-			parts = append(parts, m[2])
-		}
-		parts = append(parts, m[3]+".")
-		return strings.Join(parts, "  "), ""
+		return m[1] + "  " + m[3] + ".", ""
 	}
 	w, _ := dictionaryWord(raw)
 	p, _ := dictionaryPOS(raw)
