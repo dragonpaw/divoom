@@ -23,7 +23,6 @@ func onthisdayScene(widgets map[string]widget.Widget) *scene.Scene {
 		Weight: 20,
 		BgPath: bgOnThisDay,
 		Elements: []frame.DispElement{
-			sceneTitle("on this day"),
 			// Year accent — big mono, gruvbox orange, left-aligned.
 			// Sits just below the sceneTitle row at y=480; height
 			// allows the 96pt glyphs to render without clipping.

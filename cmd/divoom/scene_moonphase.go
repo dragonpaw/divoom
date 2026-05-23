@@ -22,7 +22,6 @@ func moonphaseScene(widgets map[string]widget.Widget) *scene.Scene {
 		BgPath:    moonBackgrounds[7], // fallback before first cache fill
 		BgPathFor: moonBgPathFor,
 		Elements: []frame.DispElement{
-			sceneTitle("moon"),
 			// "First Quarter · 53%" — caption directly under the disc.
 			{
 				ID: idSceneMain, Type: "Text",

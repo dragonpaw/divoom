@@ -21,7 +21,6 @@ func didyouknowScene(widgets map[string]widget.Widget) *scene.Scene {
 		Weight: 20,
 		BgPath: bgDidYouKnow,
 		Elements: []frame.DispElement{
-			sceneTitle("did you know?"),
 			{
 				ID: idSceneMain, Type: "Text",
 				StartX: 80, StartY: 540, Width: 640, Height: 560,

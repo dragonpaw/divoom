@@ -1,14 +1,11 @@
 package main
 
 import (
-	"fmt"
-
-	"github.com/dragonpaw/divoom/internal/frame"
 	"github.com/dragonpaw/divoom/internal/scene"
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// "NASA APOD" — Astronomy Picture of the Day, rotating across the
+// "astronomy picture of the day" — NASA APOD, rotating across the
 // curated date pool (see nasaCuratedDates).
 //
 // Divoom's cloud proxy whitelists only `f.divoom-gz.com` for Image
@@ -18,7 +15,8 @@ import (
 // `divoom push` time we fetch every curated APOD, composite each into
 // a per-index bg JPG, and adb-push each to
 // /userdata/wallclock_bg_nasa_NNN.jpg (see bakeAllNASABackgrounds in
-// scene_baked.go).
+// scene_baked.go). The scene title is baked into the bg by
+// render.SceneBackground (no Text element).
 //
 // Index mapping is stable across runs (the curated date list is
 // sorted by hand → date N always lives at path N → the local APOD
@@ -33,9 +31,6 @@ func nasaScene(_ map[string]widget.Widget) *scene.Scene {
 		BgPath: bgNASAFor(0),
 		BgPathFor: func(_ string) string {
 			return bgNASAFor(walk())
-		},
-		Elements: []frame.DispElement{
-			sceneTitle(fmt.Sprintf("NASA APOD · %d-image rotation", len(nasaCuratedDates))),
 		},
 	}
 }

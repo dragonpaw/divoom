@@ -179,6 +179,15 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 		// per-type cap and silently get dropped on-device.
 		drawSceneGlyph(img, scene)
 		drawGitHubChrome(img)
+	case SceneDidYouKnow:
+		drawSceneGlyph(img, scene)
+		drawBakedSceneTitle(img, "did you know?")
+	case SceneOnThisDay:
+		drawSceneGlyph(img, scene)
+		drawBakedSceneTitle(img, "on this day")
+	case SceneNASA:
+		drawSceneGlyph(img, scene)
+		drawBakedSceneTitle(img, "astronomy picture of the day")
 	case SceneCocktail:
 		// No scene glyph — the cocktail scene's body is painted at
 		// `divoom push` time by bakeCocktailBackground as a typographic
@@ -211,6 +220,7 @@ func SceneMoonphaseBackground(phaseIndex int, format Format, now time.Time) ([]b
 	}
 	img := buildHeroImage(now)
 	drawMoonDisc(img, phaseIndex)
+	drawBakedSceneTitle(img, "moon")
 	return encodeImage(img, format)
 }
 
@@ -282,6 +292,7 @@ func SunriseBackground(daylight string, format Format, now time.Time) ([]byte, e
 	// Sun glyph in the bottom-LEFT corner — the bottom-right area is
 	// now claimed by the baked arc + labels.
 	drawSceneGlyphAt(img, SceneSunrise, 180, 1100)
+	drawBakedSceneTitle(img, "sun")
 	return encodeImage(img, format)
 }
 
@@ -621,6 +632,31 @@ func drawTILChrome(img *image.RGBA) {
 	} else {
 		slog.Warn("til chrome: attribution font load failed", "err", err)
 	}
+}
+
+// drawBakedSceneTitle renders the canonical scene-title row baked
+// into the bg at y=505 baseline, matching cmd/divoom's sceneTitle()
+// helper. Frees a device Text slot for every scene that uses it —
+// the title is always-static-per-scene so there's no reason to keep
+// burning the slot at install time.
+func drawBakedSceneTitle(img *image.RGBA, title string) {
+	if title == "" {
+		return
+	}
+	f, err := LoadFont("RobotoCondensed-Light.ttf")
+	if err != nil {
+		slog.Warn("scene title: font load failed", "err", err)
+		return
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size: 26, DPI: 72, Hinting: font.HintingFull,
+	})
+	if err != nil {
+		slog.Warn("scene title: face init failed", "err", err)
+		return
+	}
+	defer face.Close()
+	drawLabelCentered(img, title, face, CanvasW/2, 505, GruvFgDark)
 }
 
 // drawGitHubChrome bakes the GitHub scene's static chrome: title row,
