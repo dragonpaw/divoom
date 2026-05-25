@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"testing"
+	"time"
 
 	"github.com/dragonpaw/divoom/internal/frame"
 )
@@ -184,6 +185,36 @@ func TestRefreshRecoversFromPanickingWidget(t *testing.T) {
 		if got == boom {
 			t.Fatalf("pick returned scene whose widget panics")
 		}
+	}
+}
+
+// TestPickAppliesWeightModifier verifies that (a) a scene whose
+// modifier returns 0 is dropped from rotation, and (b) a scene whose
+// modifier returns 2× gets roughly double the picks of a sibling at
+// 1× across many iterations.
+func TestPickAppliesWeightModifier(t *testing.T) {
+	zero := newTestScene(t, "zero", 10, 2)
+	zero.WeightModifier = func(_ time.Time) float64 { return 0 }
+	base := newTestScene(t, "base", 10, 3)
+	boosted := newTestScene(t, "boosted", 10, 4)
+	boosted.WeightModifier = func(_ time.Time) float64 { return 2.0 }
+
+	d := newDriver(zero, base, boosted)
+
+	const iters = 6000
+	counts := map[string]int{}
+	for i := 0; i < iters; i++ {
+		s := d.pick(nil)
+		counts[s.Name]++
+	}
+	if counts["zero"] != 0 {
+		t.Errorf("scene with zero-returning modifier got picked %d times", counts["zero"])
+	}
+	// boosted should pick roughly 2× as often as base. Tolerate 15%
+	// drift since rng + cooldown jitter can shift things a bit.
+	ratio := float64(counts["boosted"]) / float64(counts["base"])
+	if ratio < 1.7 || ratio > 2.3 {
+		t.Errorf("boosted/base ratio = %.2f, want ~2.0", ratio)
 	}
 }
 

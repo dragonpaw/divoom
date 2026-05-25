@@ -12,7 +12,7 @@ import (
 // communal) and no tagline.
 func jargonScene(widgets map[string]widget.Widget) *scene.Scene {
 	return DictionaryScene(DictionarySceneOpts{
-		Name: "jargon", Title: "Jargon File", Weight: WeightInteresting, BgPath: bgJargon,
+		Name: "jargon", Title: "Jargon File", Weight: WeightEntertaining, BgPath: bgJargon,
 		Widget: widgets["jargon"], Style: StyleManpage,
 	})
 }

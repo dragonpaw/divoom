@@ -252,7 +252,7 @@ func TestSunriseTickX(t *testing.T) {
 }
 
 // TestSeasonAt pins the season name and accent colour for each month so
-// the dayofyear scene's season label can't silently flip a colour or
+// the calendar scene's season label can't silently flip a colour or
 // drop a season.
 func TestSeasonAt(t *testing.T) {
 	cases := []struct {
@@ -813,5 +813,46 @@ func TestWordnikPronunciation(t *testing.T) {
 				t.Errorf("wordnikPronunciation(%q) = %q, want %q", tc.raw, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestUSFederalHolidays pins three moving holidays for 2026 against
+// time.Date-built expected dates so the moving-holiday math (nth
+// weekday of month, last weekday of month) can't silently drift.
+func TestUSFederalHolidays(t *testing.T) {
+	year := 2026
+	holidays := usFederalHolidays(year)
+
+	// Expected anchors — built via time.Date, not hardcoded ints.
+	cases := []struct {
+		name string
+		date time.Time
+		want rune
+	}{
+		// MLK Day: 3rd Monday of January 2026 → Jan 19.
+		{"MLK 2026", time.Date(2026, time.January, 19, 0, 0, 0, 0, time.UTC), 'M'},
+		// Memorial Day: last Monday of May 2026 → May 25.
+		{"Memorial 2026", time.Date(2026, time.May, 25, 0, 0, 0, 0, time.UTC), 'R'},
+		// Thanksgiving: 4th Thursday of November 2026 → Nov 26.
+		{"Thanksgiving 2026", time.Date(2026, time.November, 26, 0, 0, 0, 0, time.UTC), 'T'},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key := int(tc.date.Month())*100 + tc.date.Day()
+			got, ok := holidays[key]
+			if !ok {
+				t.Fatalf("%s: no entry for %s in usFederalHolidays(%d)",
+					tc.name, tc.date.Format("2006-01-02"), year)
+			}
+			if got != tc.want {
+				t.Errorf("%s: letter for %s = %q, want %q",
+					tc.name, tc.date.Format("2006-01-02"), got, tc.want)
+			}
+		})
+	}
+
+	// Also verify the count — 11 holidays expected.
+	if len(holidays) != 11 {
+		t.Errorf("usFederalHolidays(%d): got %d entries, want 11", year, len(holidays))
 	}
 }

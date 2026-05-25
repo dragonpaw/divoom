@@ -60,19 +60,24 @@ func (f *Forecast) Name() string { return "weather/forecast" }
 
 type forecastResponse struct {
 	Daily struct {
-		Time         []string  `json:"time"`
-		Max          []float64 `json:"temperature_2m_max"`
-		Min          []float64 `json:"temperature_2m_min"`
-		WeatherCode  []int     `json:"weathercode"`
+		Time        []string  `json:"time"`
+		Max         []float64 `json:"temperature_2m_max"`
+		Min         []float64 `json:"temperature_2m_min"`
+		WeatherCode []int     `json:"weathercode"`
+		PrecipProb  []int     `json:"precipitation_probability_max"`
 	} `json:"daily"`
 }
 
 // Fetch returns the next-4-day forecast as a pipe-separated string:
-// "DAY|HI|LO|OUTLOOK|DAY|HI|LO|OUTLOOK|…" where DAY is the lowercase
-// 3-letter abbreviation ("thu"), HI/LO are integers in the configured
-// unit (no degree symbol — the scene adds it), and OUTLOOK comes from
-// OutlookFromCode. Tomorrow's row is segment [0..3], the day after is
-// [4..7], etc.
+// "WHI|WLO|DAY|HI|LO|OUTLOOK|PRECIP|DAY|HI|LO|OUTLOOK|PRECIP|…"
+// where WHI/WLO are the integer max/min HI/LO across the rendered
+// days (prefix-once, used by the scene to scale per-day bars against
+// the week's span), DAY is the lowercase 3-letter abbreviation
+// ("thu"), HI/LO are integers in the configured unit (no degree
+// symbol — the scene adds it), OUTLOOK comes from OutlookFromCode,
+// and PRECIP is the integer 0-100 precipitation probability for the
+// day. Tomorrow's row is segments [2..6], the day after is [7..11],
+// etc.
 func (f *Forecast) Fetch(ctx context.Context) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -83,7 +88,7 @@ func (f *Forecast) Fetch(ctx context.Context) (string, error) {
 	url := fmt.Sprintf(
 		"https://api.open-meteo.com/v1/forecast"+
 			"?latitude=%s&longitude=%s"+
-			"&daily=temperature_2m_max,temperature_2m_min,weathercode"+
+			"&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max"+
 			"&temperature_unit=%s&timezone=auto&forecast_days=%d",
 		f.lat, f.lon, f.unit, forecastDays+1, // +1 because today is index 0; we want tomorrow onward
 	)
@@ -106,18 +111,47 @@ func (f *Forecast) Fetch(ctx context.Context) (string, error) {
 
 	// Open-Meteo returns `time` as YYYY-MM-DD strings in local TZ;
 	// take the next forecastDays days starting at index 1 (today is
-	// index 0).
-	parts := make([]string, 0, forecastDays*4)
+	// index 0). Compute weekHi/weekLo across just those days so the
+	// scene can scale per-day range bars against the week's span.
+	type dayRow struct {
+		day, outlook string
+		hi, lo, prec int
+	}
+	rows := make([]dayRow, 0, forecastDays)
+	weekHi, weekLo := math.MinInt, math.MaxInt
 	for i := 1; i <= forecastDays && i < len(body.Daily.Time); i++ {
-		day := shortDayName(body.Daily.Time[i])
 		hi := int(math.Round(body.Daily.Max[i]))
 		lo := int(math.Round(body.Daily.Min[i]))
-		outlook := OutlookFromCode(body.Daily.WeatherCode[i])
+		prec := 0
+		if i < len(body.Daily.PrecipProb) {
+			prec = body.Daily.PrecipProb[i]
+		}
+		if hi > weekHi {
+			weekHi = hi
+		}
+		if lo < weekLo {
+			weekLo = lo
+		}
+		rows = append(rows, dayRow{
+			day:     shortDayName(body.Daily.Time[i]),
+			hi:      hi,
+			lo:      lo,
+			outlook: OutlookFromCode(body.Daily.WeatherCode[i]),
+			prec:    prec,
+		})
+	}
+	if len(rows) == 0 {
+		return f.fail(fmt.Errorf("forecast: no daily rows"))
+	}
+	parts := make([]string, 0, 2+len(rows)*5)
+	parts = append(parts, fmt.Sprintf("%d", weekHi), fmt.Sprintf("%d", weekLo))
+	for _, r := range rows {
 		parts = append(parts,
-			day,
-			fmt.Sprintf("%d", hi),
-			fmt.Sprintf("%d", lo),
-			outlook,
+			r.day,
+			fmt.Sprintf("%d", r.hi),
+			fmt.Sprintf("%d", r.lo),
+			r.outlook,
+			fmt.Sprintf("%d", r.prec),
 		)
 	}
 	out := strings.Join(parts, "|")

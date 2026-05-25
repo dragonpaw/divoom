@@ -3,9 +3,15 @@ services:
     image: ghcr.io/dragonpaw/divoom:latest
     container_name: divoom-dashboard
     restart: unless-stopped
-    # Host networking so cloud-discovery sees the same LAN the frame is on,
-    # and so `adb connect` reaches the device directly.
+    # Host networking so cloud-discovery sees the same LAN the frame is on.
     network_mode: host
+    # USB passthrough so the container's adb can reach a frame plugged into
+    # one of the NAS's USB ports. Privileged because adb needs to claim the
+    # USB endpoint exclusively. /dev/bus/usb is a directory bind-mount so
+    # hot-plugged devices show up live without restarting the container.
+    privileged: true
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       # Frame targeting. MAC pins discovery; IP skips cloud discovery entirely.
@@ -17,4 +23,17 @@ services:
       GITHUB_USER: ${GITHUB_USER:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       WORDNIK_API_KEY: ${WORDNIK_API_KEY:-}
+      # Scene config. SPECIAL_DATES paints personal-date cells in the
+      # calendar grid (MM-DD:LETTER pairs). SUBREDDITS lists the feeds
+      # the reddit scene rotates through. PRIORITY_SCENES bumps named
+      # scenes' rotation weight by PriorityMultiplier (4×).
+      DIVOOM_SPECIAL_DATES: ${DIVOOM_SPECIAL_DATES:-}
+      DIVOOM_SUBREDDITS: ${DIVOOM_SUBREDDITS:-}
+      DIVOOM_PRIORITY_SCENES: ${DIVOOM_PRIORITY_SCENES:-}
+      # AGENDA_ICS_URL points at a public iCalendar feed; unset disables
+      # the agenda scene. PICKUP_SCHEDULE is "trash:mon,recycle:wed,..."
+      # — when set, the pickup-reminder scene fires the evening before
+      # and morning of each configured pickup.
+      DIVOOM_AGENDA_ICS_URL: ${DIVOOM_AGENDA_ICS_URL:-}
+      DIVOOM_PICKUP_SCHEDULE: ${DIVOOM_PICKUP_SCHEDULE:-}
     command: ["serve"]

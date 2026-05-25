@@ -75,7 +75,8 @@ func sunriseScene(widgets map[string]widget.Widget) *scene.Scene {
 			{ID: idSceneSub1, Format: pipeAt(0)},
 			{ID: idSceneSub2, Format: pipeAt(1)},
 		},
-		OnActivate: sunrisePositionTick,
+		OnActivate:     sunrisePositionTick,
+		WeightModifier: sunriseModifier,
 	}
 }
 

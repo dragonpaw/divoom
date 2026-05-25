@@ -71,7 +71,8 @@ func marketsScene(widgets map[string]widget.Widget) *scene.Scene {
 			{ID: idSceneSub2, Format: marketsChangeBoth},
 			{ID: idSceneSub3, Format: pipeAt(4)},
 		},
-		OnActivate: marketsColorize,
+		OnActivate:     marketsColorize,
+		WeightModifier: marketsHours,
 	}
 }
 

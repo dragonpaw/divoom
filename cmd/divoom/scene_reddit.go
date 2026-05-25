@@ -20,7 +20,7 @@ import (
 func redditScene(widgets map[string]widget.Widget) *scene.Scene {
 	return &scene.Scene{
 		Name:   "reddit",
-		Weight: WeightInteresting,
+		Weight: WeightEntertaining,
 		BgPath: bgReddit,
 		Elements: []frame.DispElement{
 			// Post title — hero. Left-aligned, prose font, full fg.

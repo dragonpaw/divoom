@@ -10,7 +10,7 @@ import (
 // as a left-aligned Text element between them.
 func fortuneScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
-		Name: "fortune", Title: "fortune", Weight: WeightInteresting, BgPath: bgFortune,
+		Name: "fortune", Title: "fortune", Weight: WeightEntertaining, BgPath: bgFortune,
 		Widget: widgets["fortune"],
 		Family: FamilyTerminal,
 	})

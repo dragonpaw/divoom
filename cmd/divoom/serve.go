@@ -39,8 +39,6 @@ var hnKeywords = []string{
 // renders from a warm cache without waiting on the network. Time + Date
 // + DoW are always on top; the bottom area swaps Markets / Sky / Ambient.
 func runServe(ctx context.Context) error {
-	slog.Info("scene backgrounds must be pushed separately via `divoom push` (run from a USB-attached host)")
-
 	client, _, err := connectToFrame(ctx)
 	if err != nil {
 		return err
@@ -84,7 +82,7 @@ func runServe(ctx context.Context) error {
 		"markets":    finance.NewRotating(parseTickerList(os.Getenv("DIVOOM_TICKERS"))),
 		"moonphase":  sky.NewMoon(),
 		"hn":         news.NewHN(hnKeywords),
-		"dayofyear":  calendar.NewDayOfYear(),
+		"calendar":   calendar.NewCalendar(),
 		"easter":     easter.New(),
 		"babylon5":   quotes.NewBabylon5(),
 		"startrek":   quotes.NewStarTrek(),
@@ -123,6 +121,15 @@ func runServe(ctx context.Context) error {
 		slog.Info("github scene disabled (set GITHUB_USER + GITHUB_TOKEN)")
 	}
 
+	// Agenda scene is opt-in via DIVOOM_AGENDA_ICS_URL — a public
+	// iCalendar feed URL. Unset/empty drops the scene from rotation.
+	if url := os.Getenv("DIVOOM_AGENDA_ICS_URL"); url != "" {
+		widgets["agenda"] = calendar.NewAgenda(url)
+		slog.Info("agenda scene enabled")
+	} else {
+		slog.Info("agenda scene disabled (set DIVOOM_AGENDA_ICS_URL)")
+	}
+
 	// Reddit scene is opt-in via DIVOOM_SUBREDDITS — a comma-separated
 	// list of subreddit names. Unset/empty drops the scene from the
 	// rotation entirely (same gate-pattern as the github scene).
@@ -137,9 +144,9 @@ func runServe(ctx context.Context) error {
 
 	// Priority bump: scenes named in DIVOOM_PRIORITY_SCENES get their
 	// existing tier weight multiplied by PriorityMultiplier — layered
-	// on top of the per-scene tier (informational vs interesting) so a
+	// on top of the per-scene tier (informational vs entertaining) so a
 	// user-priority informational scene fires 160:20 vs the default
-	// interesting baseline. Unset/empty applies no bumps; the tier
+	// entertaining baseline. Unset/empty applies no bumps; the tier
 	// weights are the baseline. Unknown names are logged and ignored —
 	// a typo shouldn't crash startup.
 	priorityNames := parsePriorityScenes(os.Getenv("DIVOOM_PRIORITY_SCENES"))
@@ -165,6 +172,12 @@ func runServe(ctx context.Context) error {
 		Scenes:   scenes,
 	}
 	logStartup(driver)
+
+	// In-process calendar refresh — startup push + every midnight.
+	// Calendar-only so no font reload / divoom_app crash-restart;
+	// keeps "today" current on the wall without a NAS-side cron.
+	startDailyRefresh(ctx)
+
 	if err := driver.Run(ctx); err != nil {
 		slog.Error("scene driver returned", "err", err)
 	}
@@ -224,8 +237,8 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneMarkets, render.FormatJPEG, now) }, bgMarkets},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneHN, render.FormatJPEG, now) }, bgHN},
 		{func() ([]byte, error) {
-			return render.DayOfYearBackground(now, parseSpecialDates(os.Getenv("DIVOOM_SPECIAL_DATES")), render.FormatJPEG)
-		}, bgDayOfYear},
+			return render.CalendarBackground(now, parseSpecialDates(os.Getenv("DIVOOM_SPECIAL_DATES")), usFederalHolidays(now.Year()), render.FormatJPEG)
+		}, bgCalendar},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now) }, bgEaster},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneCatFacts, render.FormatJPEG, now) }, bgCatFacts},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneDidYouKnow, render.FormatJPEG, now) }, bgDidYouKnow},
@@ -237,6 +250,9 @@ func pushSceneBackgrounds(ctx context.Context) error {
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneReddit, render.FormatJPEG, now) }, bgReddit},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneForecast, render.FormatJPEG, now) }, bgForecast},
 		{func() ([]byte, error) { return render.SceneBackground(render.SceneSeismic, render.FormatJPEG, now) }, bgSeismic},
+		{func() ([]byte, error) { return render.SceneBackground(render.SceneAgenda, render.FormatJPEG, now) }, bgAgenda},
+		{func() ([]byte, error) { return render.SceneBackground(render.ScenePickup, render.FormatJPEG, now) }, bgPickup},
+		{func() ([]byte, error) { return render.GenartBackground(now, render.FormatJPEG) }, bgGenart},
 	}
 	// Moonphase: one bg per pre-rendered disc variant across the synodic
 	// cycle (14 total). BgPathFor picks the right one per phase reading.

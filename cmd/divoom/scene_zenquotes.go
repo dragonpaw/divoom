@@ -8,7 +8,7 @@ import (
 // "ZenQuotes" — sky-blue, contemplative.
 func zenquotesScene(widgets map[string]widget.Widget) *scene.Scene {
 	return QuoteScene(QuoteSceneOpts{
-		Name: "zenquotes", Title: "zen", Weight: WeightInteresting, BgPath: bgZenQuotes,
+		Name: "zenquotes", Title: "zen", Weight: WeightEntertaining, BgPath: bgZenQuotes,
 		Widget:       widgets["zenquotes"],
 		Family:          FamilyMarginalia,
 		Tagline:         "be here now",

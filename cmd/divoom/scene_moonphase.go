@@ -49,7 +49,8 @@ func moonphaseScene(widgets map[string]widget.Widget) *scene.Scene {
 		// werewolf advisory: switch to mono (faux-field-note voice)
 		// and bump the size a notch so the advisory reads with weight.
 		// Other phases use the inherited prose-light + smaller size.
-		OnActivate: moonOnActivate,
+		OnActivate:     moonOnActivate,
+		WeightModifier: moonphaseModifier,
 	}
 }
 

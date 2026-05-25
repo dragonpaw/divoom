@@ -94,7 +94,8 @@ func issScene(widgets map[string]widget.Widget) *scene.Scene {
 			{ID: idSceneSub2, Format: pipeAt(2), AllowEmpty: true},
 			{ID: idSceneSub3, Format: issCoordsAndPass, AllowEmpty: true},
 		},
-		OnActivate: issOnActivate,
+		OnActivate:     issOnActivate,
+		WeightModifier: issModifier,
 	}
 }
 

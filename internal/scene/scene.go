@@ -79,6 +79,14 @@ type Scene struct {
 	// the baked day-arc.
 	OnActivate func(now time.Time, raw string, elements []frame.DispElement)
 
+	// WeightModifier, if set, returns a multiplier applied to Weight at
+	// pick time so scenes can be more (or less) eligible by time of day.
+	// Nil means "no time-of-day bias" (multiplier 1.0). A zero return
+	// makes the scene ineligible for this pick. Useful for markets
+	// (favour during market hours), sunrise (favour near sunrise/sunset),
+	// pickup-reminder (only eligible the evening before / morning of), etc.
+	WeightModifier func(now time.Time) float64
+
 	mu       sync.RWMutex
 	cached   string
 	healthy  bool // true until first failure; flips back on next success
@@ -163,17 +171,22 @@ func (s *Scene) latest() string {
 // caller can fold time-of-day-dependent color choices (AM/PM, day of
 // week) into the elements at each install.
 //
-// installSeq is bumped per scene install and folded into every element
-// ID we send, so each install uses element IDs the device has never
-// seen before. That sidesteps the per-ID property cache (see
-// docs/api.md → ID caching) without needing the dial-flashing
-// ExitCustomMode round-trip.
+// To defeat the device's element-property cache, install() forces the
+// DispList length to differ from the previous install (see the inline
+// comment in install() for the empirical details).
 type Driver struct {
 	Client   *frame.Client
 	AlwaysOn func(now time.Time) []frame.DispElement
 	Scenes   []*Scene
 
-	installSeq atomic.Uint64
+	// lastDispListLen is the total DispList length of the most recent
+	// install (or 0 for the first one). Used by install() to force a
+	// length change every time — the device's element-property cache
+	// only reallocates slots when DispList length differs between
+	// consecutive Enters (verified empirically 2026-05-25). Same length
+	// = device reuses cached FontSize / StartY / Height regardless of
+	// what we send. Length differs = clean slate.
+	lastDispListLen atomic.Int64
 
 	pickMu     sync.Mutex
 	rng        *rand.Rand
@@ -260,18 +273,38 @@ func (d *Driver) retryUnhealthy(ctx context.Context) {
 
 // pick returns the next scene to install via weighted random sample.
 // It excludes (a) `last` so the same scene never runs twice in a row,
-// and (b) any scene whose element count matches `last` — the device's
-// geometry cache only invalidates when DispList length differs between
-// installs, so picking a same-count scene would leave the prior
-// scene's FontSize / Height in place. Scenes with Weight <= 0 are
-// always skipped.
+// and (b) any scene whose element count matches `last` — belt-and-
+// suspenders since install() now appends a filler element to guarantee
+// the DispList length differs, but this still cuts one needless install
+// when two same-count scenes are adjacent in the rotation. Scenes with
+// Weight <= 0 are always skipped.
 func (d *Driver) pick(last *Scene) *Scene {
 	d.pickMu.Lock()
 	defer d.pickMu.Unlock()
 
 	now := time.Now()
+	// effectiveWeight applies the per-scene WeightModifier (if any) to
+	// the base Weight; zero means "skip this pick". Rounded to int after
+	// multiplying so the weighted-random sum stays in integer arithmetic.
+	effectiveWeight := func(s *Scene) int {
+		if s.Weight <= 0 {
+			return 0
+		}
+		if s.WeightModifier == nil {
+			return s.Weight
+		}
+		m := s.WeightModifier(now)
+		if m <= 0 {
+			return 0
+		}
+		w := int(float64(s.Weight)*m + 0.5)
+		if w < 1 {
+			w = 1
+		}
+		return w
+	}
 	eligible := func(s *Scene) bool {
-		if s.Weight <= 0 || s == last {
+		if effectiveWeight(s) <= 0 || s == last {
 			return false
 		}
 		if last != nil && len(s.Elements) == len(last.Elements) {
@@ -289,7 +322,7 @@ func (d *Driver) pick(last *Scene) *Scene {
 	total := 0
 	for _, s := range d.Scenes {
 		if eligible(s) {
-			total += s.Weight
+			total += effectiveWeight(s)
 		}
 	}
 	if total == 0 {
@@ -322,7 +355,7 @@ func (d *Driver) pick(last *Scene) *Scene {
 		if !eligible(s) {
 			continue
 		}
-		roll -= s.Weight
+		roll -= effectiveWeight(s)
 		if roll < 0 {
 			return s
 		}
@@ -423,18 +456,26 @@ func (d *Driver) activate(ctx context.Context, s *Scene) error {
 	}
 
 	top := d.AlwaysOn(now)
-	elements := make([]frame.DispElement, 0, len(top)+len(bottom))
+	elements := make([]frame.DispElement, 0, len(top)+len(bottom)+1)
 	elements = append(elements, top...)
 	elements = append(elements, bottom...)
 
-	// Fresh per-install ID offset: each element gets an ID the device
-	// has never seen. Cheap, and avoids any per-ID state confusion
-	// even though the property cache isn't keyed solely on ID.
-	seq := d.installSeq.Add(1)
-	offset := int(seq) * 100
-	for i := range elements {
-		elements[i].ID += offset
+	// Force the DispList length to differ from the previous install.
+	// Verified empirically 2026-05-25: the device's element-property
+	// cache is keyed on (Type, position-in-DispList) and only
+	// reallocates slots when total length changes. Same length =
+	// device ignores property changes (FontSize, StartY, Height)
+	// regardless of what we send. ID is NOT in the cache key — the
+	// previous `+seq*100` defence was dead code.
+	//
+	// The filler element is a built-in `Year` type sized 1×1 pushed
+	// off-screen at StartY=2000. Built-ins don't count against the
+	// per-Type Text cap (6) and don't trigger network fetches.
+	prevLen := int(d.lastDispListLen.Load())
+	if prevLen == len(elements) {
+		elements = append(elements, cacheFiller())
 	}
+	d.lastDispListLen.Store(int64(len(elements)))
 
 	bg := s.BgPath
 	if s.BgPathFor != nil {
@@ -448,10 +489,6 @@ func (d *Driver) activate(ctx context.Context, s *Scene) error {
 		DispList:                 elements,
 	}
 
-	// No ExitCustomMode here: the driver's pick() guarantees consecutive
-	// scenes have different element counts, and a different DispList
-	// length is empirically enough to bust the device's geometry cache
-	// without the 1s preset-dial flash that Exit causes.
 	installCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := d.Client.EnterCustomMode(installCtx, layout); err != nil {
@@ -459,4 +496,19 @@ func (d *Driver) activate(ctx context.Context, s *Scene) error {
 	}
 	slog.Info("scene active", "scene", s.Name, "duration", SceneDuration, "text", raw)
 	return nil
+}
+
+// cacheFiller returns a single invisible built-in DispElement used to
+// pad the DispList by one when the current install would otherwise
+// have the same length as the previous one. Built-in types (Year,
+// Week, Time, etc.) don't count against the per-Type Text/Image caps
+// and don't trigger any network or filesystem access. Pushed off-
+// screen so the user never sees it.
+func cacheFiller() frame.DispElement {
+	return frame.DispElement{
+		ID: 99, Type: "Year",
+		StartX: 0, StartY: 2000, Width: 1, Height: 1,
+		Align: 0, FontSize: 1, FontID: 52,
+		FontColor: "#1d2021", BgColor: "#1d2021",
+	}
 }

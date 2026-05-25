@@ -40,7 +40,7 @@ const (
 // per-user preferences are layered on top via DIVOOM_PRIORITY_SCENES,
 // which multiplies the chosen tier by PriorityMultiplier.
 const (
-	WeightInteresting   = 20 // curated rotations: quotes, factoids, NASA, cocktail
+	WeightEntertaining  = 20 // curated rotations: quotes, factoids, NASA, cocktail
 	WeightInformational = 40 // live data: weather, forecast, iss, markets, news
 	PriorityMultiplier  = 4  // env-listed user-priority scenes get this factor
 )
@@ -60,7 +60,7 @@ const (
 	bgMarkets    = "/userdata/wallclock_bg_markets.jpg"
 	bgHN         = "/userdata/wallclock_bg_hn.jpg"
 	bgDevil      = "/userdata/wallclock_bg_devil.jpg"
-	bgDayOfYear  = "/userdata/wallclock_bg_dayofyear.jpg"
+	bgCalendar   = "/userdata/wallclock_bg_calendar.jpg"
 	bgEaster     = "/userdata/wallclock_bg_easter.jpg"
 	bgBabylon5   = "/userdata/wallclock_bg_babylon5.jpg"
 	bgStarTrek   = "/userdata/wallclock_bg_startrek.jpg"
@@ -76,17 +76,20 @@ const (
 	// Cocktail: per-drink bgs live at /userdata/wallclock_bg_cocktail_NNN.jpg,
 	// one per ID returned by bakeAllCocktailBackgrounds. See bgCocktailFor
 	// and cocktailPoolSize.
-	bgOnThisDay  = "/userdata/wallclock_bg_onthisday.jpg"
-	bgISS        = "/userdata/wallclock_bg_iss.jpg"
-	bgGitHub     = "/userdata/wallclock_bg_github.jpg"
-	bgTIL        = "/userdata/wallclock_bg_til.jpg"
-	bgWordnik    = "/userdata/wallclock_bg_wordnik.jpg"
-	bgStoics     = "/userdata/wallclock_bg_stoics.jpg"
-	bgTwain      = "/userdata/wallclock_bg_twain.jpg"
-	bgFortune    = "/userdata/wallclock_bg_fortune.jpg"
-	bgReddit     = "/userdata/wallclock_bg_reddit.jpg"
-	bgForecast   = "/userdata/wallclock_bg_forecast.jpg"
-	bgSeismic    = "/userdata/wallclock_bg_seismic.jpg"
+	bgOnThisDay = "/userdata/wallclock_bg_onthisday.jpg"
+	bgISS       = "/userdata/wallclock_bg_iss.jpg"
+	bgGitHub    = "/userdata/wallclock_bg_github.jpg"
+	bgTIL       = "/userdata/wallclock_bg_til.jpg"
+	bgWordnik   = "/userdata/wallclock_bg_wordnik.jpg"
+	bgStoics    = "/userdata/wallclock_bg_stoics.jpg"
+	bgTwain     = "/userdata/wallclock_bg_twain.jpg"
+	bgFortune   = "/userdata/wallclock_bg_fortune.jpg"
+	bgReddit    = "/userdata/wallclock_bg_reddit.jpg"
+	bgForecast  = "/userdata/wallclock_bg_forecast.jpg"
+	bgSeismic   = "/userdata/wallclock_bg_seismic.jpg"
+	bgAgenda    = "/userdata/wallclock_bg_agenda.jpg"
+	bgPickup    = "/userdata/wallclock_bg_pickup.jpg"
+	bgGenart    = "/userdata/wallclock_bg_genart.jpg"
 
 	// One bg per weather outlook so the icon in the bottom-right corner
 	// matches the current condition. Selected at activation time via
@@ -226,6 +229,116 @@ const (
 	cBgHard = "#1d2021"
 )
 
+// --- time-of-day weight modifiers ---
+//
+// Each Scene may carry a WeightModifier(now) float64 that's applied as a
+// multiplier to its base Weight at pick time (see internal/scene/scene.go).
+// The helpers below build a small set of clock-window closures used by
+// the per-scene factories so each scene reads "more likely during these
+// hours, less likely outside".
+//
+// All windows read time.Now() in the local zone — the daemon runs in the
+// home TZ so "morning" / "night" land where the user lives.
+
+// marketsHours returns 3.0 during US market hours (Mon-Fri 06:30-13:00
+// Pacific = NYSE 09:30-16:00 ET) and 0.3 otherwise. The clock is read
+// in time.Local — the device sits in PT so this matches the user's wall
+// clock; an east-coast deploy would need a separate zone (no users yet,
+// no need to abstract).
+func marketsHours(now time.Time) float64 {
+	t := now.In(time.Local)
+	wd := t.Weekday()
+	if wd == time.Saturday || wd == time.Sunday {
+		return 0.3
+	}
+	minutes := t.Hour()*60 + t.Minute()
+	const open = 6*60 + 30
+	const close = 13 * 60
+	if minutes >= open && minutes < close {
+		return 3.0
+	}
+	return 0.3
+}
+
+// sunriseModifier favours hours near sunrise/sunset. We don't have a
+// live sunrise/sunset lookup here so approximate by hour-of-day: 06-08
+// = sunrise window (3.0), 18-20 = sunset window (1.5), 10-16 = midday
+// (0.4), the rest is deep night (0.2).
+func sunriseModifier(now time.Time) float64 {
+	h := now.In(time.Local).Hour()
+	switch {
+	case h >= 6 && h < 8:
+		return 3.0
+	case h >= 18 && h < 20:
+		return 1.5
+	case h >= 10 && h < 16:
+		return 0.4
+	default:
+		return 0.2
+	}
+}
+
+// issModifier mirrors sunriseModifier — passes are visible at twilight.
+// 1.5 within the ±2h sunrise/sunset window, 0.4 mid-day, 0.6 deep night.
+func issModifier(now time.Time) float64 {
+	h := now.In(time.Local).Hour()
+	switch {
+	case h >= 5 && h < 8, h >= 18 && h < 21:
+		return 1.5
+	case h >= 10 && h < 16:
+		return 0.4
+	default:
+		return 0.6
+	}
+}
+
+// moonphaseModifier favours nighttime hours when the moon is overhead.
+// Cheap proxy: 19:00-05:00 local = "night", everything else = daytime.
+func moonphaseModifier(now time.Time) float64 {
+	h := now.In(time.Local).Hour()
+	if h >= 19 || h < 5 {
+		return 1.8
+	}
+	return 0.4
+}
+
+// nasaModifier favours late-evening / early-morning hours — APOD reads
+// as "tonight's astronomy lecture" rather than "office wallpaper".
+func nasaModifier(now time.Time) float64 {
+	h := now.In(time.Local).Hour()
+	if h >= 21 || h < 6 {
+		return 2.5
+	}
+	return 1.0
+}
+
+// cocktailModifier favours the apéritif / dinner / after-dinner window.
+func cocktailModifier(now time.Time) float64 {
+	h := now.In(time.Local).Hour()
+	if h >= 17 && h < 23 {
+		return 2.0
+	}
+	return 0.7
+}
+
+// forecastModifier favours morning planning + pre-bed windows.
+func forecastModifier(now time.Time) float64 {
+	h := now.In(time.Local).Hour()
+	if (h >= 6 && h < 9) || (h >= 20 && h < 22) {
+		return 2.0
+	}
+	return 1.0
+}
+
+// calendarModifier favours the morning planning window only.
+func calendarModifier(now time.Time) float64 {
+	h := now.In(time.Local).Hour()
+	if h >= 6 && h < 9 {
+		return 2.0
+	}
+	return 1.0
+}
+
 // Vertical layout (800x1280 portrait):
 //   y=30-110    "> dayname" prompt (Text, dayColor, fontMono)
 //   y=140-340   Time (huge, solid fg, fontMono)
@@ -257,7 +370,7 @@ func isoWeek(now time.Time) int {
 // seasonAt returns the all-caps season name and its gruvbox accent for
 // the month of `now`. WINTER (Dec/Jan/Feb) is cold cAqua; SPRING
 // (Mar/Apr/May) is growth cGreen; SUMMER (Jun/Jul/Aug) is sun cYellow;
-// AUTUMN (Sep/Oct/Nov) is foliage cOrange. Used by the dayofyear
+// AUTUMN (Sep/Oct/Nov) is foliage cOrange. Used by the calendar
 // scene's OnActivate to colour-code the season label under the grid.
 func seasonAt(now time.Time) (name, color string) {
 	switch now.Month() {
@@ -439,7 +552,7 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 		marketsScene(widgets),
 		moonphaseScene(widgets),
 		hnScene(widgets),
-		dayofyearScene(widgets),
+		calendarScene(widgets),
 		babylon5Scene(widgets),
 		startrekScene(widgets),
 		discworldScene(widgets),
@@ -462,12 +575,19 @@ func buildScenes(widgets map[string]widget.Widget) []*scene.Scene {
 		easterScene(widgets),
 		issScene(widgets),
 		seismicScene(widgets),
+		genartScene(widgets),
 	}
 	if widgets["github"] != nil {
 		scenes = append(scenes, githubScene(widgets))
 	}
 	if widgets["reddit"] != nil {
 		scenes = append(scenes, redditScene(widgets))
+	}
+	if widgets["agenda"] != nil {
+		scenes = append(scenes, agendaScene(widgets))
+	}
+	if s := pickupScene(); s != nil {
+		scenes = append(scenes, s)
 	}
 	return scenes
 }
@@ -909,13 +1029,16 @@ func fitDictionaryBody(text string, e frame.DispElement) frame.DispElement {
 	}
 
 	e.FontSize = fs
+	// Top-aligned: short definitions sit right under the headword/POS
+	// rows rather than floating mid-track. The dictionary chassis reads
+	// as "header → body" top-to-bottom; centering body within an empty
+	// track puts a confusing gap between the header and the entry.
+	e.StartY = trackTop
 	if rendered >= trackH {
-		e.StartY = trackTop
 		e.Height = trackH
-		return e
+	} else {
+		e.Height = rendered
 	}
-	e.StartY = trackTop + (trackH-rendered)/2
-	e.Height = rendered
 	return e
 }
 
@@ -1116,25 +1239,95 @@ func weatherStats(raw string) (text, color string) {
 }
 
 // forecastRow returns a Format closure for one day of the
-// multi-day forecast strip. The widget emits 4 segments per day
-// ("DAY|HI|LO|OUTLOOK"), and idx selects which day this element
-// renders (0 = tomorrow). Output: "fri   73° / 58°   cloudy" with
-// the outlook word colour-coding the whole row so the strip reads
-// as a column of weather-coded rows.
+// multi-day forecast strip. The widget emits a 2-segment prefix
+// (WHI|WLO — week-wide max/min) followed by 5 segments per day
+// (DAY|HI|LO|OUTLOOK|PRECIP). idx selects which day this element
+// renders (0 = tomorrow). Output:
+//
+//	"sun  ██▆▆▂▂  62°/53°  ·30%"
+//
+// The 6-char bar shows this day's HI-LO range scaled against the
+// week's span. The precipitation suffix is only present when the
+// day's probability ≥ 30%. The outlook is NOT in the text; it
+// colour-codes the whole row.
 func forecastRow(idx int) func(raw string) (text, color string) {
 	return func(raw string) (text, color string) {
 		parts := strings.Split(raw, "|")
-		base := idx * 4
-		if base+3 >= len(parts) {
+		// 2-segment prefix (WHI|WLO) + 5-per-day; need both the
+		// prefix and all 5 of this day's segments.
+		base := 2 + idx*5
+		if base+4 >= len(parts) {
 			return "", cFgDark
 		}
+		weekHi, errH := strconv.Atoi(parts[0])
+		weekLo, errL := strconv.Atoi(parts[1])
 		day := parts[base]
 		hi := parts[base+1]
 		lo := parts[base+2]
 		outlook := parts[base+3]
-		text = fmt.Sprintf("%-4s  %3s° / %3s°  %s", day, hi, lo, outlook)
+		precip := parts[base+4]
+
+		dayHi, errDH := strconv.Atoi(hi)
+		dayLo, errDL := strconv.Atoi(lo)
+		bar := "      "
+		if errH == nil && errL == nil && errDH == nil && errDL == nil {
+			bar = forecastBar(dayLo, dayHi, weekLo, weekHi)
+		}
+
+		precipSuffix := ""
+		if n, err := strconv.Atoi(precip); err == nil && n >= 30 {
+			precipSuffix = fmt.Sprintf("  ·%d%%", n)
+		}
+
+		text = fmt.Sprintf("%-4s  %s  %3s°/%3s°%s", day, bar, hi, lo, precipSuffix)
 		return text, weatherOutlookColor(outlook)
 	}
+}
+
+// forecastBar returns a 6-character unicode-block bar showing the
+// day's HI-LO range as a slice of the week's HI-LO span. Each cell
+// represents 1/6th of the week's span; the cell's fill (using the
+// block ladder " ▁▂▃▄▅▆▇█") reflects how much of that slice falls
+// inside the day's range. A degenerate flat week (weekHi ≤ weekLo)
+// renders as six full blocks so the row still draws something stable.
+func forecastBar(dayLo, dayHi, weekLo, weekHi int) string {
+	if weekHi <= weekLo {
+		return "██████"
+	}
+	const ladder = " ▁▂▃▄▅▆▇█"
+	ladderRunes := []rune(ladder)
+	weekRange := float64(weekHi - weekLo)
+	cellWidth := weekRange / 6.0
+	dLo := float64(dayLo)
+	dHi := float64(dayHi)
+	var b strings.Builder
+	b.Grow(6 * 4) // worst-case UTF-8 bytes
+	for i := 0; i < 6; i++ {
+		cellLo := float64(weekLo) + float64(i)*cellWidth
+		cellHi := float64(weekLo) + float64(i+1)*cellWidth
+		hi := dHi
+		if cellHi < hi {
+			hi = cellHi
+		}
+		lo := dLo
+		if cellLo > lo {
+			lo = cellLo
+		}
+		overlap := hi - lo
+		if overlap < 0 {
+			overlap = 0
+		}
+		fill := overlap / cellWidth
+		idx := int(fill*8 + 0.5)
+		if idx < 0 {
+			idx = 0
+		}
+		if idx > 8 {
+			idx = 8
+		}
+		b.WriteRune(ladderRunes[idx])
+	}
+	return b.String()
 }
 
 // aqiColor maps an EPA AQI reading to its band colour. Bands are
@@ -1695,7 +1888,11 @@ func fitDevilBody(text string, e frame.DispElement) frame.DispElement {
 		trackTop       = 620
 		trackBottom    = 1060
 		charWidthRatio = 0.45 // px per char ≈ FontSize * this
-		lineHeightFrac = 1.20
+		// 1.30 matches what the device actually renders for Roboto
+		// Condensed; the earlier 1.20 underestimated line spacing and
+		// let 50pt entries with ~7 lines slip through the fit check
+		// but clip the final line on the wall (see Olympian).
+		lineHeightFrac = 1.30
 	)
 	const trackH = trackBottom - trackTop
 	if text == "" {

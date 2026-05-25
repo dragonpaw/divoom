@@ -28,7 +28,7 @@ func runRender(args []string) error {
 	}
 
 	// Hardcoded to keep every screenshot reproducible — year-progress
-	// bar, dayofyear "today" cell, time/day-of-week header and all
+	// bar, calendar "today" cell, time/day-of-week header and all
 	// other time-dependent baking line up across the scene set.
 	// Wednesday 2026-05-27 12:34 local (-07:00).
 	now := time.Date(2026, time.May, 27, 12, 34, 0, 0,
@@ -52,8 +52,8 @@ func runRender(args []string) error {
 		{name: "scene-hn", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneHN, render.FormatJPEG, now)
 		}},
-		{name: "scene-dayofyear", render: func() ([]byte, error) {
-			return render.DayOfYearBackground(now, parseSpecialDates(os.Getenv("DIVOOM_SPECIAL_DATES")), render.FormatJPEG)
+		{name: "scene-calendar", render: func() ([]byte, error) {
+			return render.CalendarBackground(now, parseSpecialDates(os.Getenv("DIVOOM_SPECIAL_DATES")), usFederalHolidays(now.Year()), render.FormatJPEG)
 		}},
 		{name: "scene-easter", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneEaster, render.FormatJPEG, now)
@@ -93,6 +93,15 @@ func runRender(args []string) error {
 		}},
 		{name: "scene-seismic", render: func() ([]byte, error) {
 			return render.SceneBackground(render.SceneSeismic, render.FormatJPEG, now)
+		}},
+		{name: "scene-agenda", render: func() ([]byte, error) {
+			return render.SceneBackground(render.SceneAgenda, render.FormatJPEG, now)
+		}},
+		{name: "scene-pickup", render: func() ([]byte, error) {
+			return render.SceneBackground(render.ScenePickup, render.FormatJPEG, now)
+		}},
+		{name: "scene-genart", render: func() ([]byte, error) {
+			return render.GenartBackground(now, render.FormatJPEG)
 		}},
 	}
 	// Quote-family scenes — baked chrome per family (see quote_family.go).

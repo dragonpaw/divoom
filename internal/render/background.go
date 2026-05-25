@@ -28,8 +28,9 @@ const (
 
 // Gruvbox dark hard palette. We anchor everything to these.
 var (
-	GruvBgHard   = color.RGBA{0x1d, 0x20, 0x21, 0xff}
-	GruvBgDarker = color.RGBA{0x3c, 0x38, 0x36, 0xff}
+	GruvBgHard       = color.RGBA{0x1d, 0x20, 0x21, 0xff}
+	GruvBgDarker     = color.RGBA{0x3c, 0x38, 0x36, 0xff}
+	GruvBgDarkerLift = color.RGBA{0x50, 0x49, 0x45, 0xff}
 	GruvFgDark   = color.RGBA{0xa8, 0x99, 0x84, 0xff}
 	GruvFg       = color.RGBA{0xeb, 0xdb, 0xb2, 0xff}
 	GruvRed      = color.RGBA{0xfb, 0x49, 0x34, 0xff}
@@ -39,6 +40,13 @@ var (
 	GruvPurple   = color.RGBA{0xd3, 0x86, 0x9b, 0xff}
 	GruvAqua     = color.RGBA{0x8e, 0xc0, 0x7b, 0xff}
 	GruvOrange   = color.RGBA{0xfe, 0x80, 0x19, 0xff}
+
+	// Faded gruvbox accents — used for letter glyphs over the calendar
+	// grid's past cells, where the cell fill is muted grey but the
+	// glyph still needs to read as red (personal date) or blue (federal
+	// holiday). Standard gruvbox "faded" palette values.
+	GruvFadedRed  = color.RGBA{0x9d, 0x00, 0x06, 0xff}
+	GruvFadedBlue = color.RGBA{0x07, 0x66, 0x78, 0xff}
 )
 
 // Format selects an output encoding for TestBackground.
@@ -85,7 +93,7 @@ const (
 	SceneMarkets Scene = iota
 	SceneMoonphase
 	SceneHN
-	SceneDayOfYear
+	SceneCalendar
 	SceneEaster
 	SceneBabylon5
 	SceneStarTrek
@@ -110,21 +118,25 @@ const (
 	SceneFortune
 	SceneForecast
 	SceneSeismic
+	SceneAgenda
+	SceneGenart
+	ScenePickup
 )
 
 // SceneBackground builds the hero frame and draws the scene's glyph into
 // the bottom area — same gruvbox bg + divider + year-progress bar as
 // HeroBackground, plus a faint shape that hints at what's playing. The
-// dayofyear scene gets a thick progress bar baked into the body area;
+// calendar scene gets a thick progress bar baked into the body area;
 // the easter scene gets a giant centred gruvbox-yellow egg.
 func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) {
 	img := buildHeroImage(now)
 	switch scene {
-	case SceneDayOfYear:
-		// Preview / fallback path — no special dates available without
-		// env access, so the grid renders with past/today/future cells
-		// only. Production callers use DayOfYearBackground.
-		drawDayOfYearGrid(img, now, nil)
+	case SceneCalendar:
+		// Preview / fallback path — no special dates or holidays
+		// available without env access, so the grid renders with
+		// past/today/future cells only. Production callers use
+		// CalendarBackground.
+		drawCalendarGrid(img, now, nil, nil)
 	case SceneEaster:
 		drawEasterEgg(img)
 	case SceneWeather:
@@ -193,6 +205,21 @@ func SceneBackground(scene Scene, format Format, now time.Time) ([]byte, error) 
 	case SceneForecast:
 		drawSceneGlyph(img, scene)
 		drawBakedSceneTitle(img, "next 4 days")
+	case ScenePickup:
+		// Pickup-reminder scene: bare hero frame, no glyph or chrome.
+		// The alert text (big yellow "▲ TOMORROW: TRASH + RECYCLE")
+		// carries the entire visual weight — a corner glyph or rule
+		// would crash into the headline.
+	case SceneGenart:
+		// Generative-art scene paints its bg via GenartBackground,
+		// not through this path; SceneBackground only sees it from
+		// the render-CLI preview path, where a bare hero is fine.
+	case SceneAgenda:
+		// Agenda chrome: corner glyph + canonical baked title — minimal,
+		// because the body is dominated by the next-event summary which
+		// can run several lines.
+		drawSceneGlyph(img, scene)
+		drawBakedSceneTitle(img, "next up")
 	case SceneSeismic:
 		// No corner glyph — the seismograph trace fought the commentary
 		// line for the bottom-right quadrant and carried no data of its
@@ -1391,51 +1418,88 @@ func fillEgg(img *image.RGBA, cx, cy, rx, ryTop, ryBot int, c color.RGBA) {
 	}
 }
 
-// DayOfYearBackground builds the dayofyear scene bg with the calendar
+// CalendarBackground builds the calendar scene bg with the calendar
 // grid baked in (12 rows × 31 cols of day cells, plus month-letter
 // labels down the left edge). specialDates maps month*100+day → a
 // single-rune mark that paints the cell in red with the letter
-// centred; nil / empty just produces the past/today/future grid.
-func DayOfYearBackground(now time.Time, specialDates map[int]rune, format Format) ([]byte, error) {
+// centred; holidays does the same for US federal holidays but paints
+// in aqua. Either map may be nil — the grid just falls back to the
+// plain past/today/future styling for any cell that no map claims.
+func CalendarBackground(now time.Time, specialDates, holidays map[int]rune, format Format) ([]byte, error) {
 	img := buildHeroImage(now)
-	drawDayOfYearGrid(img, now, specialDates)
+	drawCalendarGrid(img, now, specialDates, holidays)
 	return encodeImage(img, format)
 }
 
-// dayOfYearCellState describes how one (month, day) cell paints in the
-// dayofyear grid. The five states form the priority order documented on
-// drawDayOfYearGrid; cellColorFor returns one of these for a given date
-// + special-mark presence + today.
-type dayOfYearCellState int
+// calendarCellState describes how one (month, day) cell paints in the
+// calendar grid. The states form the priority order documented on
+// drawCalendarGrid.
+type calendarCellState int
 
 const (
-	dayOfYearPhantom dayOfYearCellState = iota // dayOfMonth > days in month
-	dayOfYearSpecial                           // user-defined special date
-	dayOfYearToday                             // today, not special
-	dayOfYearPast                              // past day this year
-	dayOfYearFuture                            // future day this year
+	calendarPhantom        calendarCellState = iota // dayOfMonth > days in month
+	calendarPastPlain                               // past, no marker
+	calendarPastSpecial                             // past + personal special date
+	calendarPastHoliday                             // past + US federal holiday
+	calendarToday                                   // today (border is overlaid by painter)
+	calendarFutureWeekday                           // future Mon-Fri, no marker
+	calendarFutureWeekend                           // future Sat/Sun, no marker
+	calendarFutureHoliday                           // future + US federal holiday
+	calendarFutureSpecial                           // future + personal special date
 )
 
-// dayOfYearCellState returns the visual state for the cell at (month,
-// dayOfMonth) given today's date and the set of special dates. Priority
-// order: phantom > special > today > past > future. When today IS a
-// special date the cell is still classified as special — the painter
-// adds the cYellow border on top of the cRed fill separately.
-func dayOfYearCellStateFor(month, dayOfMonth int, today time.Time, specialDates map[int]rune) dayOfYearCellState {
+// calendarCellStateFor returns the visual state for the cell at (month,
+// dayOfMonth) given today's date, the set of special dates, and the set
+// of US federal holidays. The polarity is "past is muted, future is
+// colourful" — past cells share a single grey fill regardless of
+// weekday/weekend, with marker letters (special / holiday) painted on
+// top in their faded gruvbox accent; future cells split between weekday
+// (yellow), weekend (orange), holiday (aqua + letter), and special
+// (red + letter). Today is its own state — the painter overlays a
+// yellow border on the appropriate fill.
+//
+// Priority order (highest first):
+//
+//	phantom > today > past+special > past+holiday > past+plain >
+//	future+special > future+holiday > future+weekend > future+weekday
+//
+// Today wins over special/holiday for the *state* (so the yellow border
+// always paints), but the painter still draws the special/holiday
+// letter and fill underneath the border so today-on-your-birthday or
+// today-on-July-4 still reads as the marker day.
+func calendarCellStateFor(month, dayOfMonth int, today time.Time, specialDates, holidays map[int]rune) calendarCellState {
 	if dayOfMonth > daysInMonth(today.Year(), month) {
-		return dayOfYearPhantom
-	}
-	if _, ok := specialDates[month*100+dayOfMonth]; ok {
-		return dayOfYearSpecial
+		return calendarPhantom
 	}
 	if month == int(today.Month()) && dayOfMonth == today.Day() {
-		return dayOfYearToday
+		return calendarToday
 	}
+	_, isSpecial := specialDates[month*100+dayOfMonth]
+	_, isHoliday := holidays[month*100+dayOfMonth]
 	tMonth := int(today.Month())
-	if month < tMonth || (month == tMonth && dayOfMonth < today.Day()) {
-		return dayOfYearPast
+	isPast := month < tMonth || (month == tMonth && dayOfMonth < today.Day())
+	if isPast {
+		switch {
+		case isSpecial:
+			return calendarPastSpecial
+		case isHoliday:
+			return calendarPastHoliday
+		default:
+			return calendarPastPlain
+		}
 	}
-	return dayOfYearFuture
+	// Future.
+	switch {
+	case isSpecial:
+		return calendarFutureSpecial
+	case isHoliday:
+		return calendarFutureHoliday
+	}
+	wd := time.Date(today.Year(), time.Month(month), dayOfMonth, 0, 0, 0, 0, time.UTC).Weekday()
+	if wd == time.Saturday || wd == time.Sunday {
+		return calendarFutureWeekend
+	}
+	return calendarFutureWeekday
 }
 
 // daysInMonth returns the number of days in (year, month).
@@ -1444,20 +1508,21 @@ func daysInMonth(year, month int) int {
 	return time.Date(year, time.Month(month+1), 0, 0, 0, 0, 0, time.UTC).Day()
 }
 
-// drawDayOfYearGrid bakes the 12×31 calendar grid into the dayofyear
+// drawCalendarGrid bakes the 12×31 calendar grid into the calendar
 // scene bg. Cells are 18×18 with a 2px gap (stride 20); the grid origin
 // is (130, 750), occupying x=130..750 / y=750..990. Month labels go in
 // the left margin at x=60.
 //
-// Cell painting priority (highest first):
-//   1. phantom (dayOfMonth > days in month): cBgHard — invisible.
-//   2. special date: cRed fill + letter centred in cFg.
-//   3. today: 2px cYellow border around the cell, fill underneath
-//      stays whatever past/future colour applies.
-//   4. past: cOrange fill.
-//   5. future: cBgDarker fill.
-// Today + special: cRed fill + letter + cYellow border (both signals).
-func drawDayOfYearGrid(img *image.RGBA, now time.Time, specialDates map[int]rune) {
+// Polarity: past is muted, future is colourful.
+//
+// Past fills are a single grey (`GruvBgDarker`); marker letters paint
+// in their faded accent (`GruvFadedRed` for personal, `GruvFadedBlue`
+// for federal holiday). Future fills carry the colour: weekday yellow,
+// weekend orange, holiday aqua + letter, personal special red + letter.
+// Today gets a yellow border overlaid on whatever fill its non-today
+// equivalent would be — so today-on-your-birthday still reads red, and
+// today-on-a-holiday still reads aqua.
+func drawCalendarGrid(img *image.RGBA, now time.Time, specialDates, holidays map[int]rune) {
 	const (
 		gridX = 130
 		gridY = 750
@@ -1494,32 +1559,64 @@ func drawDayOfYearGrid(img *image.RGBA, now time.Time, specialDates map[int]rune
 		for d := 1; d <= 31; d++ {
 			cellX := gridX + (d-1)*stride
 			rect := image.Rect(cellX, cellY, cellX+cell, cellY+cell)
-			state := dayOfYearCellStateFor(month, d, today, specialDates)
+			state := calendarCellStateFor(month, d, today, specialDates, holidays)
 			switch state {
-			case dayOfYearPhantom:
+			case calendarPhantom:
 				draw.Draw(img, rect, &image.Uniform{GruvBgHard}, image.Point{}, draw.Src)
-			case dayOfYearSpecial:
+			case calendarPastPlain:
+				draw.Draw(img, rect, &image.Uniform{GruvBgDarker}, image.Point{}, draw.Src)
+			case calendarPastSpecial:
+				draw.Draw(img, rect, &image.Uniform{GruvBgDarker}, image.Point{}, draw.Src)
+				if letterFace != nil {
+					letter := string(specialDates[month*100+d])
+					drawLabelCentered(img, letter, letterFace, cellX+cell/2, cellY+cell-4, GruvFadedRed)
+				}
+			case calendarPastHoliday:
+				draw.Draw(img, rect, &image.Uniform{GruvBgDarker}, image.Point{}, draw.Src)
+				if letterFace != nil {
+					letter := string(holidays[month*100+d])
+					drawLabelCentered(img, letter, letterFace, cellX+cell/2, cellY+cell-4, GruvFadedBlue)
+				}
+			case calendarFutureWeekday:
+				draw.Draw(img, rect, &image.Uniform{GruvYellow}, image.Point{}, draw.Src)
+			case calendarFutureWeekend:
+				draw.Draw(img, rect, &image.Uniform{GruvOrange}, image.Point{}, draw.Src)
+			case calendarFutureHoliday:
+				draw.Draw(img, rect, &image.Uniform{GruvAqua}, image.Point{}, draw.Src)
+				if letterFace != nil {
+					letter := string(holidays[month*100+d])
+					drawLabelCentered(img, letter, letterFace, cellX+cell/2, cellY+cell-4, GruvBgHard)
+				}
+			case calendarFutureSpecial:
 				draw.Draw(img, rect, &image.Uniform{GruvRed}, image.Point{}, draw.Src)
 				if letterFace != nil {
 					letter := string(specialDates[month*100+d])
 					drawLabelCentered(img, letter, letterFace, cellX+cell/2, cellY+cell-4, GruvFg)
 				}
-				if month == int(today.Month()) && d == today.Day() {
-					drawCellBorder(img, rect, 2, GruvYellow)
+			case calendarToday:
+				// Today is overlaid on whatever its non-today equivalent
+				// would be — so today-on-a-holiday still reads aqua, etc.
+				// Today's fill always paints from the FUTURE palette
+				// since "today" is by definition the start of the future.
+				if letter, ok := specialDates[month*100+d]; ok {
+					draw.Draw(img, rect, &image.Uniform{GruvRed}, image.Point{}, draw.Src)
+					if letterFace != nil {
+						drawLabelCentered(img, string(letter), letterFace, cellX+cell/2, cellY+cell-4, GruvFg)
+					}
+				} else if letter, ok := holidays[month*100+d]; ok {
+					draw.Draw(img, rect, &image.Uniform{GruvAqua}, image.Point{}, draw.Src)
+					if letterFace != nil {
+						drawLabelCentered(img, string(letter), letterFace, cellX+cell/2, cellY+cell-4, GruvBgHard)
+					}
+				} else {
+					wd := today.Weekday()
+					fill := GruvYellow
+					if wd == time.Saturday || wd == time.Sunday {
+						fill = GruvOrange
+					}
+					draw.Draw(img, rect, &image.Uniform{fill}, image.Point{}, draw.Src)
 				}
-			case dayOfYearToday:
-				// Paint the underlying past/future fill, then border.
-				underlying := GruvBgDarker
-				tMonth := int(today.Month())
-				if month < tMonth || (month == tMonth && d < today.Day()) {
-					underlying = GruvOrange
-				}
-				draw.Draw(img, rect, &image.Uniform{underlying}, image.Point{}, draw.Src)
 				drawCellBorder(img, rect, 2, GruvYellow)
-			case dayOfYearPast:
-				draw.Draw(img, rect, &image.Uniform{GruvOrange}, image.Point{}, draw.Src)
-			case dayOfYearFuture:
-				draw.Draw(img, rect, &image.Uniform{GruvBgDarker}, image.Point{}, draw.Src)
 			}
 		}
 	}
@@ -1531,14 +1628,14 @@ func drawDayOfYearGrid(img *image.RGBA, now time.Time, specialDates map[int]rune
 func loadFace(filename string, size float64) (font.Face, error) {
 	f, err := LoadFont(filename)
 	if err != nil {
-		slog.Warn("dayofyear grid: font load failed", "file", filename, "err", err)
+		slog.Warn("calendar grid: font load failed", "file", filename, "err", err)
 		return nil, err
 	}
 	face, err := opentype.NewFace(f, &opentype.FaceOptions{
 		Size: size, DPI: 72, Hinting: font.HintingFull,
 	})
 	if err != nil {
-		slog.Warn("dayofyear grid: face init failed", "file", filename, "err", err)
+		slog.Warn("calendar grid: face init failed", "file", filename, "err", err)
 		return nil, err
 	}
 	return face, nil
@@ -1984,6 +2081,41 @@ func drawSceneGlyphAt(img *image.RGBA, scene Scene, cx, cy int) {
 		// Word of the Day scene.
 		drawBook(img, cx, cy, c)
 
+	case SceneAgenda:
+		// Mini "calendar page" — a square with two binding tabs on top
+		// and three horizontal rows representing scheduled lines. Built
+		// from rectangles so it reads at glance distance as a page
+		// from a daily planner.
+		const (
+			pageW = 180
+			pageH = 170
+			tabW  = 18
+			tabH  = 22
+			rowH  = 10
+			rowGap = 22
+		)
+		left := cx - pageW/2
+		top := cy - pageH/2
+		// Outline (paint the full page then carve interior).
+		draw.Draw(img, image.Rect(left, top, left+pageW, top+pageH),
+			&image.Uniform{c}, image.Point{}, draw.Src)
+		// Two binding tabs above the page.
+		draw.Draw(img, image.Rect(left+pageW/4-tabW/2, top-tabH, left+pageW/4+tabW/2, top),
+			&image.Uniform{c}, image.Point{}, draw.Src)
+		draw.Draw(img, image.Rect(left+3*pageW/4-tabW/2, top-tabH, left+3*pageW/4+tabW/2, top),
+			&image.Uniform{c}, image.Point{}, draw.Src)
+		// Carve interior to bg-hard so the page reads as outlined.
+		const border = 10
+		draw.Draw(img,
+			image.Rect(left+border, top+border, left+pageW-border, top+pageH-border),
+			&image.Uniform{GruvBgHard}, image.Point{}, draw.Src)
+		// Three "rows" inside the page indicating scheduled entries.
+		for i := 0; i < 3; i++ {
+			y := top + border + 18 + i*rowGap
+			draw.Draw(img,
+				image.Rect(left+border+12, y, left+pageW-border-12, y+rowH),
+				&image.Uniform{c}, image.Point{}, draw.Src)
+		}
 	}
 }
 

@@ -122,10 +122,12 @@ probe:
 render-out:
 	$(withenv) go run ./cmd/divoom render
 
-# Push scene backgrounds + custom fonts to the frame via adb (USB host
-# only — the NAS serve container can't do this). After any scene
-# change, render-code change, or factory reset, run this from the
-# dev box. The `push` target name is taken by the GHCR image push;
-# this is the on-device push.
+# Push scene backgrounds + custom fonts to the frame via adb. Runs against
+# whatever device adb sees — the dev box (USB-attached frame) or, since the
+# serve container now ships with adb + /dev/bus/usb passthrough, the
+# container on the NAS if the frame is USB-plugged into it. After any
+# scene change, render-code change, or factory reset, run this from
+# wherever the frame is currently cabled. The `push` target name is taken
+# by the GHCR image push; this is the on-device push.
 push-frame:
 	$(withenv) go run ./cmd/divoom push

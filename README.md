@@ -4,11 +4,13 @@ A custom wall-clock dashboard for the Divoom Times Frame (800×1280 portrait),
 built because the stock app's preset dials are restrictive and the device is
 an Allwinner TinaLinux box that quietly accepts `adb` pushes and exposes a
 local JSON HTTP API at `:9000/divoom_api`. The dashboard runs as a Docker
-container on a NAS, rotating every three minutes through 24 hand-designed
-scenes that mix market tickers, weather + air quality + NWS alerts, sky /
-moon / ISS, historical events, hand-curated quotes, useless facts, HN
-headlines, and a ~300-deep rotation of typographic cocktail recipe cards
-+ a 121-deep curated NASA APOD rotation.
+container on a NAS (with the frame USB-attached for adb), rotating every
+three minutes through ~28 hand-designed scenes that mix market tickers,
+weather + 4-day forecast + air quality + NWS alerts, sky / moon / ISS /
+sunrise, calendar grid + agenda peek + pickup-day reminder, historical
+events, hand-curated quotes, useless facts, HN headlines, a daily piece
+of generative art, and a ~300-deep rotation of typographic cocktail
+recipe cards + a 121-deep curated NASA APOD rotation.
 
 ![cocktail · margarita](docs/screenshots/cocktail.jpg)
 ![astronomy picture of the day · noctilucent clouds over Paris](docs/screenshots/nasa.jpg)
@@ -28,15 +30,22 @@ don't try to host endpoints the frame polls. Instead the daemon:
 
 1. Discovers the frame on the LAN (or talks directly to `DIVOOM_FRAME_IP`).
 2. `adb`-pushes per-scene background JPGs into `/userdata/` on the device
-   (one-time, from a USB-connected dev box). The NASA + cocktail scenes
+   over USB. The NAS container runs `--privileged` with `/dev/bus/usb`
+   bind-mounted, so the same image that serves the rotation also performs
+   the pushes — no separate dev-box step. The NASA + cocktail scenes
    pre-bake every entry in their rotation pool into individual indexed
    bg JPGs so the device can show variety without ever touching the
-   network at activation time.
+   network at activation time. The calendar + generative-art scenes
+   re-render and re-push at every local midnight via an in-process
+   scheduler so "today" stays current.
 3. Runs each widget (weather, markets, moon, whimsy rotator, …) in-process
    on its own refresh cadence, caching the last value.
 4. Rotates through scenes every 3 minutes: at each scene change it bakes
    the current widget values into Text elements and installs the whole
-   layout via `Device/EnterCustomControlMode`.
+   layout via `Device/EnterCustomControlMode`. Per-scene `WeightModifier`
+   closures scale rotation weight by time-of-day so the right scene is
+   more likely to fire at the right hour (markets during market hours,
+   sunrise around the actual event, NASA APOD overnight, etc.).
 
 ## Scenes
 
@@ -47,7 +56,12 @@ don't try to host endpoints the frame polls. Instead the daemon:
 | **sunrise** | Today's sunrise / sunset times + daylight hours. |
 | **moonphase** | The current phase rendered as a real disc (one of 14 pre-rendered variants across the synodic cycle) + name + illumination + countdown to next full moon. |
 | **iss** | Live sub-satellite-point dot drawn over a baked world-map outline + altitude + velocity. |
-| **dayofyear** | 12×31 calendar grid with past / today / future cells and red letter-marks for `DIVOOM_SPECIAL_DATES` birthdays / anniversaries; season banner colour-shifts spring/summer/autumn/winter. |
+| **calendar** | 12×31 calendar grid. Past cells uniform grey; today bordered yellow; future weekdays yellow, future weekends orange. Letter-marks: aqua + letter for US federal holidays, red + letter for `DIVOOM_SPECIAL_DATES` birthdays / anniversaries. Past holiday / personal-date letters use a faded blue / faded red so they read as muted markers against the grey backdrop. Polarity is "past muted, future colourful" — time flows down-and-right through the year. Re-renders + re-pushes at every local midnight so "today" stays current. |
+| **forecast** | Next-4-day strip — one row per day with day-name, HI°/LO° tightened, a 6-char unicode-block bar showing the day's range scaled against the week's overall span, and a `·NN%` precipitation suffix when ≥30%. Row colour-coded by outlook (clear / cloudy / rain / snow / hazard). |
+| **agenda** | Next 1-2 events from a public iCal feed (`DIVOOM_AGENDA_ICS_URL`) — event title hero with relative countdown (`in 23m`, `tomorrow`, `Thu`) and clock time. Opt-in; the scene drops out of rotation when the env var is unset. |
+| **pickup** | Trash / recycling / compost reminder, fires from 17:00 the day before through 08:00 the morning of each pickup. `DIVOOM_PICKUP_SCHEDULE=trash:thu,recycle:thu` configures the cadence. Otherwise weight-0 and invisible from the rotation. |
+| **genart** | A daily piece of generative art — voronoi tessellation / perlin contours / recamán's-sequence stripes / mandelbrot zoom, chosen deterministically per date. Re-renders at every local midnight. |
+| **seismic** | Recent earthquakes within the configured radius — magnitude, distance, age, hypocenter depth. Source: USGS. |
 | **catfacts** | Cat fact rendered as a Smithsonian-style field-guide entry — _Felis catus_ binomial, taxonomic line, pilcrow drop-marker, observation # / institution footer. |
 | **didyouknow** | Random useless fact in body prose under a big bold "?" glyph. |
 | **onthisday** | Historical event for today's date from Wikimedia — big orange year accent over the prose, tear-off-calendar glyph in the corner. |
@@ -70,32 +84,42 @@ screenshots match what you'd see on the wall.
 
 ## Architecture
 
-Responsibility is split between a dev-box one-shot (`push`) that loads
-static assets over USB-adb, and a NAS-side long-running daemon (`serve`)
-that drives the frame over HTTP and pulls live data from external APIs.
+One container does both jobs. `serve` runs forever (LAN HTTP to the
+frame, widget polling, scene rotation). The same image carries `adb` +
+`/dev/bus/usb` passthrough so `push` (full background + font refresh)
+and the in-process daily refresh (calendar + genart) can adb-push to
+the USB-attached frame without leaving the box.
 
 ```
-  dev-box (USB)                        NAS                       Times Frame
-  ┌──────────────┐   adb push          ┌──────────────┐  HTTP    ┌──────────┐
-  │ divoom push  │ ──bgs + fonts────▶  │              │ ────────▶│ :9000    │
-  └──────────────┘   to /userdata/     │ divoom serve │  scene   │ JSON API │
-                                       │  (container) │  swaps   │          │
-  ┌──────────────┐   open APIs:        │              │          │ 800×1280 │
-  │ external     │ ◀──widgets poll──── │              │          │ IPS LCD  │
-  │ APIs         │   Open-Meteo, NWS,  └──────────────┘          └──────────┘
-  └──────────────┘   NASA APOD, NYT,
-                     HN, Wikimedia, GitHub,
-                     TheCocktailDB, Stooq
+  NAS container (privileged + /dev/bus/usb)            Times Frame
+  ┌────────────────────────────────────┐     USB-adb   ┌──────────┐
+  │ divoom serve  ─ scene rotation     │ ────bgs────▶  │ /userdata│
+  │   ├─ widgets poll external APIs    │   + fonts     │          │
+  │   ├─ daily refresh: midnight push  │               │          │
+  │   │   of calendar + genart bgs     │     LAN HTTP  │ :9000    │
+  │   └─ EnterCustomControlMode ──────────────────────▶│ JSON API │
+  │ divoom push  ─ full bg + font reload (manual,      │          │
+  │   crashes divoom_app to reload fonts)              │ 800×1280 │
+  └────────────────────────────────────┘               │ IPS LCD  │
+   ▲                                                   └──────────┘
+   │  open APIs: Open-Meteo, NWS, USGS, NASA APOD,
+   │  HN, Wikimedia, GitHub, TheCocktailDB, Stooq,
+   │  Reddit, iCal feeds, …
 ```
 
 `push` runs occasionally — after scene-design changes, font changes,
-or factory resets. The NASA + cocktail bakes are slow (hundreds of HTTP
-fetches + ImageMagick-style compositing + adb pushes per bake) but they're
-fully cached under `~/.cache/divoom/` so subsequent pushes are network-free.
+or factory resets — and ends with a font-install crash-restart of
+divoom_app on the device (the only known way to reload `font_list.cfg`).
+Don't wire `push` into the entrypoint: the crash-restart makes serve
+unreachable for ~30s and produces an infinite container-restart loop
+(see `docs/api.md` 2026-05-23). The in-process daily refresh handles
+the date-sensitive scenes without touching fonts.
 
-`serve` runs forever, polling `divoom_api:9000` to set the active layout.
-Widgets fetch from the open internet on their own cadences; nothing on the
-frame ever reaches back into the LAN.
+The NASA + cocktail bakes are slow (hundreds of HTTP fetches +
+ImageMagick-style compositing + adb pushes per bake) but they're
+fully cached under `~/.cache/divoom/` so subsequent pushes are
+network-free. Widgets fetch from the open internet on their own
+cadences; nothing on the frame ever reaches back into the LAN.
 
 ## Usage
 
@@ -104,8 +128,10 @@ go run ./cmd/divoom probe          # discover the frame, print current dial
 go run ./cmd/divoom display test   # 30s gruvbox test layout, then restore
 go run ./cmd/divoom display ticker # 30s ticker via UpdateDisplayItems
 go run ./cmd/divoom render         # write scene JPGs to ./dist/scenes/
-go run ./cmd/divoom push           # adb-push scene backgrounds + fonts (USB host only;
-                                   # prereq: scripts/download-fonts.sh once)
+go run ./cmd/divoom push           # adb-push scene backgrounds + fonts (USB-attached host
+                                   # only; NAS container with USB passthrough works too —
+                                   # `docker exec divoom-dashboard divoom push`. Prereq:
+                                   # scripts/download-fonts.sh once.)
 go run ./cmd/divoom serve          # the dashboard daemon
 ```
 
@@ -124,11 +150,18 @@ then runs `push-frame` to refresh scene backgrounds and fonts via adb.
 
 - [`docs/api.md`](docs/api.md) — empirical notes on the Times Frame API:
   endpoints we've used, quirks we've hit (the cloud-proxy URL whitelist,
-  the per-type element caps, the ID-cache geometry bug, the Image-element
-  Font-field requirement), and pointers back into Divoom's broken-English
+  the per-type element caps, the element-property cache keyed on
+  `(Type, position-in-DispList)` and the filler-element workaround,
+  the Image-element Font-field requirement, the push-on-start
+  anti-pattern), and pointers back into Divoom's broken-English
   upstream docs at `docs/upstream/`. The source of truth for "how does the
   device actually behave"; update it in the same commit as any change that
   exercises new behaviour.
+- [`docs/scene-rules.md`](docs/scene-rules.md) — the constraints every
+  scene must respect: 6-element layout cap, frozen-bg-at-deploy
+  (except calendar + genart which refresh daily in-process), the
+  device cache key, the typo-preservation rule, and the workflow
+  conventions for adding new scenes.
 - [`docs/deploy.md`](docs/deploy.md) — the GHCR + Portainer deploy workflow
   (`make deploy` from this checkout).
 - [`CLAUDE.md`](CLAUDE.md) — engineering philosophy (distilled from

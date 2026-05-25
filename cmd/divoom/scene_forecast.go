@@ -22,7 +22,9 @@ func forecastScene(widgets map[string]widget.Widget) *scene.Scene {
 		return frame.DispElement{
 			ID: id, Type: "Text",
 			StartX: 80, StartY: y, Width: 640, Height: 110,
-			Align: 0, FontSize: 56, FontID: fontMono,
+			// FontSize 46 budget: ~26-char row ("sun  ██▆▆▂▂  62°/53°  ·30%")
+			// at fontMono needs to fit in 640px. 56pt wrapped; 46 leaves headroom.
+			Align: 0, FontSize: 46, FontID: fontMono,
 			FontColor: cFg, BgColor: cBgHard,
 		}
 	}
@@ -43,5 +45,6 @@ func forecastScene(widgets map[string]widget.Widget) *scene.Scene {
 			{ID: idSceneSub2, Format: forecastRow(2)},
 			{ID: idSceneSub3, Format: forecastRow(3)},
 		},
+		WeightModifier: forecastModifier,
 	}
 }

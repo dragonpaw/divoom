@@ -11,18 +11,18 @@ import (
 	"github.com/dragonpaw/divoom/internal/widget"
 )
 
-// DayOfYear renders the year-progress as three pipe-separated segments —
-// a big percentage, a year label, and a day count — that the dayofyear
+// Calendar renders the year-progress as three pipe-separated segments —
+// a big percentage, a year label, and a day count — that the calendar
 // scene splits across separate Text elements.
 //
 // Output:  "39%|Year 2026|Day 142 of 366"
-type DayOfYear struct{}
+type Calendar struct{}
 
-func NewDayOfYear() *DayOfYear { return &DayOfYear{} }
+func NewCalendar() *Calendar { return &Calendar{} }
 
-func (d *DayOfYear) Name() string { return "calendar/dayofyear" }
+func (d *Calendar) Name() string { return "calendar" }
 
-func (d *DayOfYear) Fetch(ctx context.Context) (string, error) {
+func (d *Calendar) Fetch(ctx context.Context) (string, error) {
 	now := time.Now()
 	day := now.YearDay()
 	yearDays := 365
@@ -37,4 +37,4 @@ func isLeap(y int) bool {
 	return (y%4 == 0 && y%100 != 0) || y%400 == 0
 }
 
-var _ widget.Widget = (*DayOfYear)(nil)
+var _ widget.Widget = (*Calendar)(nil)
