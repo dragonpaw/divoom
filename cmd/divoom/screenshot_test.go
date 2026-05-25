@@ -95,13 +95,27 @@ func TestRefreshScreenshots(t *testing.T) {
 		{"github", "14238|287|4|11"},
 		{"reddit", "pcgaming|Half-Life 3 finally confirmed at The Game Awards|polygon.com|2841|gabe_irl|2h|1247"},
 		{"seismic", "3.4|7|142|NW|3h ago"},
+		{"agenda", "Standup|in 23m|10:30|Dad's birthday|Thu|all day"},
+		// pickup scene's text is composed in its OnActivate from the
+		// DIVOOM_PICKUP_SCHEDULE env (set below) — no raw widget output.
+		{"pickup", ""},
+		// genart scene's caption is composed in its OnActivate from the
+		// date — no raw widget output.
+		{"genart", ""},
 	}
 
-	// Build the scene set. Provide a non-nil stub for the github widget
-	// so buildScenes includes the github scene.
+	// pickupScene() returns nil when DIVOOM_PICKUP_SCHEDULE is unset,
+	// dropping the scene from buildScenes. Set a fixture schedule so it
+	// participates in this test; the actual eligibility window doesn't
+	// matter because RenderElements bypasses the WeightModifier check.
+	t.Setenv("DIVOOM_PICKUP_SCHEDULE", "trash:thu,recycle:thu")
+
+	// Build the scene set. Provide a non-nil stub for the github + reddit
+	// + agenda widgets so buildScenes includes their scenes.
 	widgets := map[string]widget.Widget{
 		"github": stubWidget{},
 		"reddit": stubWidget{},
+		"agenda": stubWidget{},
 	}
 	scenes := buildScenes(widgets)
 	sceneByName := map[string]int{}
