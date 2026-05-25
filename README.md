@@ -12,8 +12,36 @@ events, hand-curated quotes, useless facts, HN headlines, a daily piece
 of generative art, and a ~300-deep rotation of typographic cocktail
 recipe cards + a 121-deep curated NASA APOD rotation.
 
-![cocktail · margarita](docs/screenshots/cocktail.jpg)
-![astronomy picture of the day · noctilucent clouds over Paris](docs/screenshots/nasa.jpg)
+### Highlights
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/calendar.jpg" alt="calendar — year grid with past muted, future colourful, holidays + birthdays marked"></td>
+<td width="50%"><img src="docs/screenshots/forecast.jpg" alt="forecast — 4-day strip with HI/LO range bars and precip-chance suffix"></td>
+</tr>
+<tr>
+<td><b>calendar</b> — year-at-a-glance grid. Past cells uniform grey; future weekdays yellow, weekends orange; US federal holidays aqua + letter; <code>DIVOOM_SPECIAL_DATES</code> birthdays red + letter. Past markers fade to muted blue / red. Re-renders nightly.</td>
+<td><b>forecast</b> — next 4 days with a unicode-block bar scaling each day's HI/LO range against the week's span, plus a <code>·NN%</code> precip suffix when ≥30%.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/markets.jpg" alt="markets — trading terminal readout with sparkline"></td>
+<td><img src="docs/screenshots/jargon.jpg" alt="jargon — terminal-style dictionary entry"></td>
+</tr>
+<tr>
+<td><b>markets</b> — trading-terminal readout: symbol, price, week/month % badges, ~35-day Unicode sparkline.</td>
+<td><b>jargon</b> — terminal-style dictionary chassis: <code>$ jargon &lt;headword&gt;</code> shell prompt, definition body, baked source/author footer.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/cocktail.jpg" alt="cocktail · margarita — typographic recipe card"></td>
+<td><img src="docs/screenshots/nasa.jpg" alt="NASA astronomy picture of the day"></td>
+</tr>
+<tr>
+<td><b>cocktail</b> — random drink from a ~300-deep rotation rendered as a typographic recipe card.</td>
+<td><b>nasa</b> — Astronomy Picture of the Day from a hand-curated pool of 121 iconic dates.</td>
+</tr>
+</table>
+
+Browse every scene's baked chrome in [`docs/screenshots/`](docs/screenshots/).
 
 ## What this is
 
@@ -76,8 +104,8 @@ don't try to host endpoints the frame polls. Instead the daemon:
 | **babylon5 / startrek / discworld** | Source-attributed quote scenes — from-source layout with attribution under the rule. |
 | **stoics / twain / zenquotes** | Marginalia / page-of-a-book layout. |
 
-More screenshots — every scene's baked chrome is in [`docs/screenshots/`](docs/screenshots/).
-The dynamic Text overlays only show up once the frame installs the layout
+Every scene's baked chrome is in [`docs/screenshots/`](docs/screenshots/) —
+the dynamic Text overlays only show up once the frame installs the layout
 live, so the bg-only renders look sparse for data-heavy scenes (markets,
 weather, github). The cocktail + NASA scenes are fully baked, so their
 screenshots match what you'd see on the wall.
