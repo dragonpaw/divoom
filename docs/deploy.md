@@ -1,7 +1,10 @@
 # Deploying to Portainer
 
-The dashboard runs as a Docker container on the home NAS, managed by the
-Portainer instance at `http://10.0.2.201:19900`. The image lives in GHCR
+The dashboard runs as a Docker container on **plugger** (the M920q), where the
+Times Frame is USB-attached since the 2026-06-04 fleet migration. It's managed
+through the Portainer **hub**, which also runs on plugger (moved off the ADM NAS
+2026-06-04) at `http://10.0.2.203:19900`; plugger is the hub's **agent endpoint
+5**, so deploys target `endpointId=5` (the Makefile default). The image lives in GHCR
 (`ghcr.io/dragonpaw/divoom`, public). Deploys are manual: build locally,
 push to GHCR, then PUT the compose file at the Portainer stack API.
 
@@ -38,11 +41,18 @@ compose contents on every deploy.
 
 Scene backgrounds and the three custom TTFs (Iosevka, Roboto Condensed
 Regular & Light) live on the device flash and are written by `adb push`.
-The NAS container has no USB connection to the frame, so the daemon
-running there cannot push them — that step must happen from the
-USB-attached dev box. After any scene change (new scene, new bg art,
-new weather outlook tier), or after a factory reset that wipes the
-overlay filesystem, run once from the dev box:
+The frame is USB-attached to **plugger**, and the container there ships
+`adb` + `/dev/bus/usb` passthrough, so on-device pushes can run inside the
+running container:
+
+```
+ssh root@10.0.2.203 'docker exec divoom-dashboard divoom push'
+```
+
+(Or attach the frame to the dev box and run `go run ./cmd/divoom push`
+locally.) After any scene change (new scene, new bg art, new weather
+outlook tier), or after a factory reset that wipes the overlay filesystem,
+run once:
 
 ```
 scripts/download-fonts.sh     # one-time, populates ./fonts/ from upstream
@@ -64,10 +74,11 @@ That runs `build` → `push` → `deploy`:
 
 1. `podman build` tagged with both `:latest` and `:$(git describe)`.
 2. `podman push` of both tags to GHCR.
-3. `PUT $PORTAINER_URL/api/stacks/$STACK_ID?endpointId=1` with the
-   current `docker-compose.yml` contents and `.env` values. `pullImage:
+3. `PUT $PORTAINER_URL/api/stacks/$STACK_ID?endpointId=5` (plugger) with
+   the current `docker-compose.yml` contents and `.env` values. `pullImage:
    true` forces Portainer to pull the new `:latest` before recreating
-   the container.
+   the container. (`make deploy` scopes its stack-name lookup to the target
+   endpoint, so the stale NAS-side `divoom` stack on endpoint 3 is ignored.)
 
 Override the Portainer endpoint with `PORTAINER_URL=...`,
 `PORTAINER_API_KEY=...`, `PORTAINER_STACK_ID=...`, or
@@ -81,4 +92,6 @@ Override the Portainer endpoint with `PORTAINER_URL=...`,
   made it into the request body; check `/tmp/portainer-deploy.out` for
   the response.
 - *Container starts but can't reach frame* — `network_mode: host` is
-  required; the NAS and the frame must share a LAN segment.
+  required; plugger and the frame must share a LAN segment, and the USB
+  cable must be in one of plugger's ports (`docker exec divoom-dashboard
+  adb devices` should list serial `20080411`).

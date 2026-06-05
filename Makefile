@@ -1,5 +1,11 @@
-# Build + push + deploy the divoom dashboard to the Portainer instance on the
-# home NAS. See docs/deploy.md for one-time setup (GHCR PAT, Portainer API key).
+# Build + push + deploy the divoom dashboard via the Portainer hub on the home
+# NAS. See docs/deploy.md for one-time setup (GHCR PAT, Portainer API key).
+#
+# The Portainer HUB runs on **plugger** (moved off the ADM NAS 2026-06-04;
+# PORTAINER_URL below). The divoom container also runs on plugger — the Times
+# Frame is USB-plugged there — and plugger is the hub's agent endpoint 5, so we
+# deploy by targeting PORTAINER_ENDPOINT=5; the compose/USB recipe is unchanged
+# (plugger has a real kernel, no ADM firewall hacks).
 
 IMAGE       := ghcr.io/dragonpaw/divoom
 GHCR_USER   ?= dragonpaw
@@ -7,8 +13,14 @@ VERSION     := $(shell git describe --tags --always --dirty)
 COMPOSE     := docker-compose.yml
 ENV_FILE    := .env
 
-PORTAINER_URL        ?= http://10.0.2.201:19900
-PORTAINER_ENDPOINT   ?= 1
+PORTAINER_URL        ?= http://10.0.2.203:19900
+# plugger's Portainer agent endpoint (the NAS hub manages it as endpoint 5).
+# Pinned with `:=` (not `?=`) ON PURPOSE: $PORTAINER_ENDPOINT is exported
+# globally as 3 (the NAS-LOCAL endpoint) for other NAS tooling, and a `?=`
+# default would inherit that 3 and silently redeploy divoom back onto the NAS.
+# `:=` lets the Makefile win over the ambient env; override on the CLI
+# (`make PORTAINER_ENDPOINT=3 deploy`) if you ever need a different target.
+PORTAINER_ENDPOINT   := 5
 PORTAINER_API_KEY    ?= $(or $(PORTAINER_TOKEN),$(shell cat $(HOME)/.config/divoom/portainer-key 2>/dev/null))
 STACK_NAME           ?= divoom
 
@@ -62,11 +74,13 @@ deploy: push
 	@test -f $(COMPOSE)             || { echo "$(COMPOSE) missing"; exit 1; }
 	@test -f $(ENV_FILE)            || { echo "$(ENV_FILE) missing (copy from .env.example)"; exit 1; }
 	@stack_id=$$(curl -sS -H "X-API-Key: $(PORTAINER_API_KEY)" "$(PORTAINER_URL)/api/stacks" \
-	    | jq -r --arg n "$(STACK_NAME)" '.[] | select(.Name == $$n) | .Id' | head -1); \
+	    | jq -r --arg n "$(STACK_NAME)" --argjson ep $(PORTAINER_ENDPOINT) \
+	        '.[] | select(.Name == $$n and .EndpointId == $$ep) | .Id' | head -1); \
 	tok="$$GHCR_PAT"; [ -z "$$tok" ] && tok="$$GITHUB_TOKEN"; \
 	env_json=$$(jq -n --rawfile envfile $(ENV_FILE) --arg tok "$$tok" \
 	    '$$envfile | split("\n") | map(select(test("^\\s*[^#\\s]") and contains("="))) \
 	                            | map(capture("^(?<name>[^=]+)=(?<value>.*)$$")) \
+	                            | map(select(.name | startswith("PORTAINER_") | not)) \
 	                            | map(if .name == "GITHUB_TOKEN" and (.value | length) == 0 and ($$tok | length) > 0 \
 	                                  then .value = $$tok else . end)'); \
 	if [ -z "$$stack_id" ]; then \
