@@ -12,6 +12,10 @@ services:
     privileged: true
     volumes:
       - /dev/bus/usb:/dev/bus/usb
+      # Persists the per-drink cocktail JSONs `divoom push` fetches. The
+      # cocktail scene sizes its rotation from this cache, so without it
+      # a recreated container shows only the first drink until the next push.
+      - divoom-cache:/root/.cache
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       # Frame targeting. MAC pins discovery; IP skips cloud discovery entirely.
@@ -37,3 +41,7 @@ services:
       DIVOOM_AGENDA_ICS_URL: ${DIVOOM_AGENDA_ICS_URL:-}
       DIVOOM_PICKUP_SCHEDULE: ${DIVOOM_PICKUP_SCHEDULE:-}
     command: ["serve"]
+
+volumes:
+  divoom-cache:
+
