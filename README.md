@@ -138,8 +138,8 @@ the USB-attached frame without leaving the box.
 `push` runs occasionally — after scene-design changes, font changes,
 or factory resets — and ends with a font-install crash-restart of
 divoom_app on the device (the only known way to reload `font_list.cfg`).
-Don't wire `push` into the entrypoint: the crash-restart makes serve
-unreachable for ~30s and produces an infinite container-restart loop
+Don't wire `push` into the service's start (e.g. `ExecStartPre`): the crash-restart
+makes serve unreachable for ~30s and produces an infinite restart loop
 (see `docs/api.md` 2026-05-23). The in-process daily refresh handles
 the date-sensitive scenes without touching fonts.
 

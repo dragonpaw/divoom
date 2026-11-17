@@ -15,7 +15,7 @@ STACK_NAME           := divoom
 # scene bgs + fonts to the frame (it's USB-attached to plugger).
 all: deploy push-frame
 
-# Static binary, same flags the old Dockerfile used.
+# Static binary (no cgo, stripped).
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BIN) ./cmd/divoom
 
