@@ -168,10 +168,10 @@ directly (e.g. if you've firewalled the device off the public internet but
 still want the daemon to reach it on the LAN). Set `DIVOOM_FRAME_MAC=<mac>`
 to pin to a specific frame when you have more than one. See `.env.example`
 for the full list of widget keys + deploy settings (NASA / GitHub / Wordnik
-API keys, Portainer credentials, etc.).
+API keys, etc.).
 
 A typical end-to-end deploy is `make` from the repo root, which builds the
-container, pushes it to GHCR, redeploys the Portainer stack on the NAS, and
+container, pushes it to GHCR, redeploys it on plugger over ssh (`/srv/divoom`), and
 then runs `push-frame` to refresh scene backgrounds and fonts via adb.
 
 ## Docs
@@ -190,7 +190,7 @@ then runs `push-frame` to refresh scene backgrounds and fonts via adb.
   (except calendar + genart which refresh daily in-process), the
   device cache key, the typo-preservation rule, and the workflow
   conventions for adding new scenes.
-- [`docs/deploy.md`](docs/deploy.md) — the GHCR + Portainer deploy workflow
+- [`docs/deploy.md`](docs/deploy.md) — the GHCR + ssh deploy workflow
   (`make deploy` from this checkout).
 - [`CLAUDE.md`](CLAUDE.md) — engineering philosophy (distilled from
   Kanat-Alexander's *Code Simplicity*) that all changes in this repo are
