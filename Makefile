@@ -1,57 +1,44 @@
-# Build + push + deploy the divoom dashboard to plugger (10.0.2.203), where the
-# Times Frame is USB-plugged. See docs/deploy.md. Portainer was retired
-# 2026-11-16: the stack is plain Docker Compose in /srv/divoom on plugger
-# (docker-compose.yml + stack.env), deployed over ssh.
+# Build + deploy the divoom dashboard to plugger (10.0.2.203), where the Times
+# Frame is USB-plugged. It runs NATIVELY there since 2026-11-16 (systemd
+# divoom.service, deploy/), not in a container. See docs/deploy.md.
 
-IMAGE       := ghcr.io/dragonpaw/divoom
-GHCR_USER   ?= dragonpaw
-VERSION     := $(shell git describe --tags --always --dirty)
-COMPOSE     := docker-compose.yml
 ENV_FILE    := .env
+BIN         := dist/divoom
 
 DEPLOY_HOST          ?= ash@10.0.2.203
 DEPLOY_DIR           := /srv/divoom
 STACK_NAME           := divoom
 
-.PHONY: all build login push deploy test vet lint fmt run probe render-out push-frame
+.PHONY: all build deploy test vet lint fmt run probe render-out push-frame
 
-# Default — ship both halves: deploy the plugger container stack (which
-# transitively builds + pushes the image) and adb-push fresh scene
-# bgs + fonts to the frame. push-frame depends on a USB-attached
-# device; run `make deploy` alone from a host without that.
+# Default — ship both halves: deploy the daemon to plugger and adb-push fresh
+# scene bgs + fonts to the frame (it's USB-attached to plugger).
 all: deploy push-frame
 
+# Static binary, same flags the old Dockerfile used.
 build:
-	podman build -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BIN) ./cmd/divoom
 
-# Auto-login if GHCR_PAT or GITHUB_TOKEN is in the env; otherwise assume
-# `podman login ghcr.io` was done previously (or that podman has a cached
-# credential). The same PAT serves both GHCR push and the github-activity
-# scene, so users may keep it in either env var.
-login:
-	@token="$$GHCR_PAT"; [ -z "$$token" ] && token="$$GITHUB_TOKEN"; \
-	if [ -n "$$token" ]; then \
-	    echo "$$token" | podman login ghcr.io -u $(GHCR_USER) --password-stdin; \
-	else \
-	    echo "neither GHCR_PAT nor GITHUB_TOKEN set — relying on existing podman login session"; \
-	fi
-
-push: build login
-	podman push $(IMAGE):$(VERSION)
-	podman push $(IMAGE):latest
-
-# Copy the compose file and .env (as stack.env, root 0600) to plugger, then pull
-# + recreate there. .env on the dev box stays the source of truth for the
-# container's env; an empty GITHUB_TOKEN is filled from GHCR_PAT/GITHUB_TOKEN.
-deploy: push
-	@test -f $(COMPOSE)  || { echo "$(COMPOSE) missing"; exit 1; }
-	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) missing (copy from .env.example)"; exit 1; }
-	@tok="$$GHCR_PAT"; [ -z "$$tok" ] && tok="$$GITHUB_TOKEN"; \
-	grep -v -E '^[[:space:]]*(#|$$)' $(ENV_FILE) | grep -v '^PORTAINER_' \
-	    | sed "s|^GITHUB_TOKEN=$$|GITHUB_TOKEN=$$tok|" \
-	    | ssh $(DEPLOY_HOST) 'sudo install -d $(DEPLOY_DIR) && sudo install -m 600 /dev/null $(DEPLOY_DIR)/stack.env && sudo tee $(DEPLOY_DIR)/stack.env >/dev/null'
-	ssh $(DEPLOY_HOST) 'sudo tee $(DEPLOY_DIR)/docker-compose.yml >/dev/null' < $(COMPOSE)
-	ssh $(DEPLOY_HOST) 'cd $(DEPLOY_DIR) && sudo docker compose -p $(STACK_NAME) --env-file stack.env pull && sudo docker compose -p $(STACK_NAME) --env-file stack.env up -d'
+# Copy the binary, fonts/, device-files/, the unit and the udev rule to plugger,
+# install them and restart. .env, when present on this box, becomes plugger's
+# /srv/divoom/stack.env (root 0600); without it the host's stack.env is kept.
+# fonts/ must be populated first (scripts/download-fonts.sh).
+deploy: build
+	@ls fonts/*.ttf >/dev/null 2>&1 || { echo "fonts/ is empty: run scripts/download-fonts.sh"; exit 1; }
+	@if [ -f $(ENV_FILE) ]; then \
+	    tok="$$GHCR_PAT"; [ -z "$$tok" ] && tok="$$GITHUB_TOKEN"; \
+	    grep -v -E '^[[:space:]]*(#|$$)' $(ENV_FILE) | grep -v '^PORTAINER_' \
+	        | sed "s|^GITHUB_TOKEN=$$|GITHUB_TOKEN=$$tok|" \
+	        | ssh $(DEPLOY_HOST) 'sudo install -d $(DEPLOY_DIR) && sudo install -m 600 /dev/null $(DEPLOY_DIR)/stack.env && sudo tee $(DEPLOY_DIR)/stack.env >/dev/null'; \
+	else echo "no $(ENV_FILE) here: keeping $(DEPLOY_HOST):$(DEPLOY_DIR)/stack.env"; fi
+	rsync -az --delete --rsync-path="sudo rsync" $(BIN) fonts device-files deploy/ $(DEPLOY_HOST):/opt/divoom/
+	ssh $(DEPLOY_HOST) 'getent passwd divoom >/dev/null || sudo useradd -r -d /var/lib/divoom -s /usr/bin/nologin divoom; \
+	    sudo chown -R root:root /opt/divoom && sudo chmod -R a+rX /opt/divoom && \
+	    sudo install -m 644 /opt/divoom/divoom.service /etc/systemd/system/divoom.service && \
+	    sudo install -m 644 /opt/divoom/70-divoom-frame.rules /etc/udev/rules.d/70-divoom-frame.rules && \
+	    sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=18d1 && \
+	    sudo systemctl daemon-reload && sudo systemctl enable divoom.service >/dev/null 2>&1; \
+	    sudo systemctl restart divoom.service'
 
 test:
 	go test ./...
@@ -85,12 +72,9 @@ probe:
 render-out:
 	$(withenv) go run ./cmd/divoom render
 
-# Push scene backgrounds + custom fonts to the frame via adb. Runs against
-# whatever device adb sees — the dev box (USB-attached frame) or, since the
-# serve container now ships with adb + /dev/bus/usb passthrough, the
-# container on the NAS if the frame is USB-plugged into it. After any
-# scene change, render-code change, or factory reset, run this from
-# wherever the frame is currently cabled. The `push` target name is taken
-# by the GHCR image push; this is the on-device push.
+# Push scene bgs + fonts to the frame. Runs ON plugger (the frame is USB-attached
+# there) as the service's user with the service's env, after `make deploy`.
 push-frame:
-	$(withenv) go run ./cmd/divoom push
+	ssh $(DEPLOY_HOST) 'sudo systemd-run --wait --pipe --collect --quiet -p User=divoom \
+	    -p WorkingDirectory=/opt/divoom -p EnvironmentFile=$(DEPLOY_DIR)/stack.env \
+	    -p Environment="XDG_CACHE_HOME=/var/cache HOME=/var/lib/divoom" /opt/divoom/divoom push'

@@ -3,8 +3,8 @@
 A custom wall-clock dashboard for the Divoom Times Frame (800×1280 portrait),
 built because the stock app's preset dials are restrictive and the device is
 an Allwinner TinaLinux box that quietly accepts `adb` pushes and exposes a
-local JSON HTTP API at `:9000/divoom_api`. The dashboard runs as a Docker
-container on a NAS (with the frame USB-attached for adb), rotating every
+local JSON HTTP API at `:9000/divoom_api`. The dashboard runs as a native
+systemd service on a home server (with the frame USB-attached for adb), rotating every
 three minutes through ~28 hand-designed scenes that mix market tickers,
 weather + 4-day forecast + air quality + NWS alerts, sky / moon / ISS /
 sunrise, calendar grid + agenda peek + pickup-day reminder, historical

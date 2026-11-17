@@ -1,0 +1,3 @@
+# Times Frame (Allwinner "Tina ADB", USB 18d1:d002): group divoom may use it, so the
+# native divoom service can run adb without root. Installed to /etc/udev/rules.d/.
+SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="d002", MODE="0660", GROUP="divoom"
