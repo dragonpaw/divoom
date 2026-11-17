@@ -49,7 +49,7 @@ deploy: push
 	@tok="$$GHCR_PAT"; [ -z "$$tok" ] && tok="$$GITHUB_TOKEN"; \
 	grep -v -E '^[[:space:]]*(#|$$)' $(ENV_FILE) | grep -v '^PORTAINER_' \
 	    | sed "s|^GITHUB_TOKEN=$$|GITHUB_TOKEN=$$tok|" \
-	    | ssh $(DEPLOY_HOST) 'sudo install -d $(DEPLOY_DIR) && sudo tee $(DEPLOY_DIR)/stack.env >/dev/null && sudo chmod 600 $(DEPLOY_DIR)/stack.env'
+	    | ssh $(DEPLOY_HOST) 'sudo install -d $(DEPLOY_DIR) && sudo install -m 600 /dev/null $(DEPLOY_DIR)/stack.env && sudo tee $(DEPLOY_DIR)/stack.env >/dev/null'
 	ssh $(DEPLOY_HOST) 'sudo tee $(DEPLOY_DIR)/docker-compose.yml >/dev/null' < $(COMPOSE)
 	ssh $(DEPLOY_HOST) 'cd $(DEPLOY_DIR) && sudo docker compose -p $(STACK_NAME) --env-file stack.env pull && sudo docker compose -p $(STACK_NAME) --env-file stack.env up -d'
 
