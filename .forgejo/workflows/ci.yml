@@ -1,3 +1,5 @@
+# Runs on the Forgejo instance (git.cave.dragonpaw.org) on the `knot` runner.
+# GitHub is a push mirror with Actions disabled; don't add .github/workflows.
 name: ci
 on: [push, pull_request]
 jobs:
