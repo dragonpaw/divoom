@@ -1,5 +1,8 @@
 # divoom
 
+> Primary repo: `ssh://git@git.cave.dragonpaw.org:2222/ash/divoom.git` (Forgejo; CI runs there).
+> github.com/dragonpaw/divoom is a one-way push mirror: don't push to it.
+
 A custom wall-clock dashboard for the Divoom Times Frame (800×1280 portrait),
 built because the stock app's preset dials are restrictive and the device is
 an Allwinner TinaLinux box that quietly accepts `adb` pushes and exposes a
